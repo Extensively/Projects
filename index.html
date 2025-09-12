@@ -40,6 +40,14 @@ body {
 .navbar {
   overflow: hidden;
   background-color: #333;
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  transform: translateX(-50%);
+  box-sizing: border-box;
 }
 
 .navbar a {
@@ -47,6 +55,7 @@ body {
   font-size: 16px;
   color: white;
   text-align: center;
+  padding: 14px 16px;
   text-decoration: none;
 }
 
@@ -95,7 +104,12 @@ body {
 .dropdown:hover .dropdown-content {
   display: block;
 }
-
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  box-sizing: border-box;
+}
 </style>
 <div class="navbar">
   <a href="#home">Home</a>
