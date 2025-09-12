@@ -78,4 +78,23 @@ body {
 <h1>Memes Page</h1>
 <h3>Check out the memes!</h3>
 
+<button onclick="toggleMassiveImg()" style="margin: 16px 0;">Memes i found in dylans left kidney</button>
+<div id="massive-img">
+  <img src="img/massive.jpeg" width="465" height="250">
+
+</div>
+
+
+
+
+<script>
+function toggleMassiveImg() {
+  var imgDiv = document.getElementById('massive-img');
+  if (imgDiv.style.display === 'none') {
+    imgDiv.style.display = '';
+  } else {
+    imgDiv.style.display = 'none';
+  }
+}
+</script>
 </body>
