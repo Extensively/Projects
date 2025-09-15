@@ -67,6 +67,21 @@ body {
 body {
   background-image: url(img/67mangomustard.png);
 }
+.dum {
+  width: 100px;
+  height: 100px;
+  background-color: red;
+  position: relative;
+  animation: movebow 5s linear 2s infinite alternate;
+}
+
+@keyframes movebow {
+  0%   {background-color:red; left:0px; top:0px;}
+  25%  {background-color:yellow; left:200px; top:0px;}
+  50%  {background-color:blue; left:200px; top:200px;}
+  75%  {background-color:green; left:0px; top:200px;}
+  100% {background-color:red; left:0px; top:0px;}
+}
 </style>
 </head><body>
 <div class="navbar">
@@ -77,7 +92,7 @@ body {
 <h1>Memes Page</h1>
 <h3>Check out the memes!</h3>
 
-<button onclick="toggleview('massive1')" style="margin: 16px 0;">Memes i found in <span class="rainbowfast">dylans</span> left kidney</button>
+<button class="dum" onclick="toggleview('massive1')" style="margin: 16px 0;">Memes i found in <span class="rainbowfast">dylans</span> left kidney</button>
 <div id="massive1" style="display: none;">
   <img src="img/massive.jpeg" width="465" height="250">
   <img src="img/brain.gif" width="465" height="250">
