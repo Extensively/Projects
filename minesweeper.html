@@ -5,63 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Minesweeper</title>
   <style>
-    .navbar {
-  overflow: hidden;
-  background-color: #333;
-  width: 100vw;
-  margin: 0;
-  padding: 0;
-  position: relative;
-  left: 50%;
-  right: 50%;
-  transform: translateX(-50%);
-  box-sizing: border-box;
-}
-
-.navbar a {
-  float: left;
-  font-size: 16px;
-  color: white;
-  text-align: center;
-  padding: 14px 16px;
-  text-decoration: none;
-}
-
-  .navbar a:hover {
-    background-color: red;
-}
-     @keyframes rainbow {
-      0% {
-        color: red;
-      }
-      20% {
-        color: yellow;
-      }
-      40% {
-        color: green;
-      }
-      60% {
-        color: blue;
-      }
-      80% {
-        color: violet;
-      }
-	   100% {
-        color: red;
-      }
-    }
-
-    .rainbowslow {
-     animation: rainbow 20s infinite;
-	   animation-duration: infinite;
- 	   animation-timing-function: linear;
-    }
-	
-    .rainbowfast {
-     animation: rainbow 2s infinite;
-	   animation-duration: infinite;
- 	   animation-timing-function: linear;
-    }
     body {
       font-family: Arial, sans-serif;
       background: #222;
@@ -126,6 +69,11 @@
     .cell.mine {
       background: red;
     }
+
+    button, input[type=range] {
+      margin: 5px;
+    }
+
     button {
       padding: 8px 14px;
       font-size: 16px;
@@ -135,17 +83,32 @@
       background: #4caf50;
       color: white;
     }
+
+    /* Number colors */
+    .n1 { color: blue; }
+    .n2 { color: green; }
+    .n3 { color: red; }
+    .n4 { color: darkblue; }
+    .n5 { color: brown; }
+    .n6 { color: turquoise; }
+    .n7 { color: black; }
+    .n8 { color: gray; }
   </style>
 </head>
 <body>
-<div class="navbar">
-    <a href="index.html">Home</a>
-    <a href="about.html">About</a>
-    <a href="memes.html">Memes</a>
-    <a href="">Minesweeper</a>
-</div>
-  <h1 class="rainbowslow">Minesweeper</h1>
-  <button onclick="startGame()">Restart</button>
+  <h1>Minesweeper</h1>
+
+  <label>
+    Board Size: <span id="sizeLabel">10</span> × <span id="sizeLabel2">10</span>
+  </label>
+  <input type="range" id="sizeSlider" min="5" max="20" value="10" />
+
+  <div id="statusBar">
+    <span id="minesLeft">Mines: 0</span>
+    <button id="restartBtn" onclick="startGame()">🙂</button>
+    <span id="timer">Time: 0</span>
+  </div>
+
   <div id="board"></div>
 
   <script>
@@ -154,6 +117,25 @@
     let minesCount;
     let board = [];
     let minePositions = [];
+    let firstClick = true;
+    let revealedCount = 0;
+    let flagsCount = 0;
+    let timer = 0;
+    let timerInterval;
+
+    const sizeSlider = document.getElementById("sizeSlider");
+    const sizeLabel = document.getElementById("sizeLabel");
+    const sizeLabel2 = document.getElementById("sizeLabel2");
+    const minesLeftEl = document.getElementById("minesLeft");
+    const timerEl = document.getElementById("timer");
+    const restartBtn = document.getElementById("restartBtn");
+
+    sizeSlider.addEventListener("input", () => {
+      rows = cols = parseInt(sizeSlider.value);
+      sizeLabel.textContent = rows;
+      sizeLabel2.textContent = cols;
+      startGame();
+    });
 
     function startGame() {
       clearInterval(timerInterval);
@@ -162,6 +144,14 @@
 
       board = [];
       minePositions = [];
+      firstClick = true;
+      revealedCount = 0;
+      flagsCount = 0;
+      minesCount = Math.floor(rows * cols * 0.15);
+
+      minesLeftEl.textContent = "Mines: " + minesCount;
+      restartBtn.textContent = "🙂";
+
       const boardElement = document.getElementById("board");
       boardElement.innerHTML = "";
       boardElement.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
@@ -178,8 +168,33 @@
       }
     }
 
+    function startTimer() {
+      timerInterval = setInterval(() => {
+        timer++;
+        timerEl.textContent = "Time: " + timer;
+      }, 1000);
+    }
+
+    function placeMines(safeIndex) {
+      const safeZone = [safeIndex, ...getNeighbors(safeIndex)];
+      while (minePositions.length < minesCount) {
+        const pos = Math.floor(Math.random() * rows * cols);
+        if (!minePositions.includes(pos) && !safeZone.includes(pos)) {
+          minePositions.push(pos);
+        }
+      }
+    }
+
     function revealCell(e) {
       const index = parseInt(e.target.dataset.index);
+      if (board[index].classList.contains("flag")) return;
+
+      if (firstClick) {
+        placeMines(index);
+        startTimer();
+        firstClick = false;
+      }
+
       if (minePositions.includes(index)) {
         e.target.classList.add("mine");
         e.target.textContent = "💣";
@@ -227,20 +242,6 @@
       }
 
       minesLeftEl.textContent = "Mines: " + (minesCount - flagsCount);
-    }
-
-    function toggleFlag(e) {
-      e.preventDefault(); // Stop right-click menu
-      const index = parseInt(e.target.dataset.index);
-      if (board[index].classList.contains("revealed")) return;
-
-      if (board[index].classList.contains("flag")) {
-        board[index].classList.remove("flag");
-        board[index].textContent = "";
-      } else {
-        board[index].classList.add("flag");
-        board[index].textContent = "🚩";
-      }
     }
 
     function countMines(index) {
