@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Goated Minesweeper</title>
+  <style>
+    .navbar {
+  overflow: hidden;
+  background-color: #333;
+  width: 100vw;
+  margin: 0;
+  padding: 0;
+  position: relative;
+  left: 50%;
+  right: 50%;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+}
+
+.navbar a {
+  float: left;
+  font-size: 16px;
+  color: white;
+  text-align: center;
+  padding: 14px 16px;
+  text-decoration: none;
+}
+
+  .navbar a:hover {
+    background-color: red;
+}
+     @keyframes rainbow {
+      0% {
+        color: red;
+      }
+      20% {
+        color: yellow;
+      }
+      40% {
+        color: green;
+      }
+      60% {
+        color: blue;
+      }
+      80% {
+        color: violet;
+      }
+	   100% {
+        color: red;
+      }
+    }
+
+    .rainbowslow {
+     animation: rainbow 20s infinite;
+	   animation-duration: infinite;
+ 	   animation-timing-function: linear;
+    }
+	
+    .rainbowfast {
+     animation: rainbow 2s infinite;
+	   animation-duration: infinite;
+ 	   animation-timing-function: linear;
+    }
+    body {
+      font-family: Arial, sans-serif;
+      background: #222;
+      color: #fff;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      flex-direction: column;
+    }
+    #board {
+      display: grid;
+      gap: 2px;
+      margin: 20px;
+    }
+    .cell {
+      width: 30px;
+      height: 30px;
+      background: #555;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-size: 18px;
+      cursor: pointer;
+      border-radius: 4px;
+    }
+    .cell.revealed {
+      background: #999;
+      cursor: default;
+    }
+    .cell.mine {
+      background: red;
+    }
+    button {
+      padding: 10px 15px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      border-radius: 6px;
+      background: #4caf50;
+      color: white;
+    }
+  </style>
+</head>
+<body>
+<div class="navbar">
+    <a href="index.html">Home</a>
+    <a href="about.html">About</a>
+    <a href="memes.html">Memes</a>
+    <a href="">Minesweeper</a>
+</div>
+  <h1 class="rainbowslow">Minesweeper</h1>
+  <button onclick="startGame()">Restart</button>
+  <div id="board"></div>
+
+  <script>
+    const rows = 10;
+    const cols = 10;
+    const minesCount = 15;
+    let board = [];
+    let minePositions = [];
+
+    function startGame() {
+      board = [];
+      minePositions = [];
+      const boardElement = document.getElementById("board");
+      boardElement.innerHTML = "";
+      boardElement.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
+      boardElement.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+      // Place mines randomly
+      while (minePositions.length < minesCount) {
+        const pos = Math.floor(Math.random() * rows * cols);
+        if (!minePositions.includes(pos)) minePositions.push(pos);
+      }
+
+      for (let i = 0; i < rows * cols; i++) {
+        const cell = document.createElement("div");
+        cell.classList.add("cell");
+        cell.dataset.index = i;
+        cell.addEventListener("click", revealCell);
+        boardElement.appendChild(cell);
+        board.push(cell);
+      }
+    }
+
+    function revealCell(e) {
+      const index = parseInt(e.target.dataset.index);
+      if (minePositions.includes(index)) {
+        e.target.classList.add("mine");
+        e.target.textContent = "💣";
+        gameOver();
+        return;
+      }
+
+      const neighbors = countMines(index);
+      e.target.classList.add("revealed");
+      e.target.textContent = neighbors > 0 ? neighbors : "";
+      e.target.removeEventListener("click", revealCell);
+
+      // If no neighboring mines, reveal surrounding cells automatically
+      if (neighbors === 0) {
+        getNeighbors(index).forEach(n => {
+          if (!board[n].classList.contains("revealed")) {
+            board[n].click();
+          }
+        });
+      }
+    }
+
+    function countMines(index) {
+      return getNeighbors(index).filter(i => minePositions.includes(i)).length;
+    }
+
+    function getNeighbors(index) {
+      const x = index % cols;
+      const y = Math.floor(index / cols);
+      const neighbors = [];
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          if (dx === 0 && dy === 0) continue;
+          const nx = x + dx;
+          const ny = y + dy;
+          if (nx >= 0 && nx < cols && ny >= 0 && ny < rows) {
+            neighbors.push(ny * cols + nx);
+          }
+        }
+      }
+      return neighbors;
+    }
+
+    function gameOver() {
+      board.forEach((cell, i) => {
+        if (minePositions.includes(i)) {
+          cell.classList.add("mine");
+          cell.textContent = "💣";
+        }
+        cell.removeEventListener("click", revealCell);
+      });
+      alert("Game Over!");
+    }
+
+    startGame();
+  </script>
+</body>
+</html>
