@@ -77,8 +77,8 @@ body {
 <h1>Memes Page</h1>
 <h3>Check out the memes!</h3>
 
-<button onclick="toggleview()" style="margin: 16px 0;">Memes i found in <span class="rainbowfast">dylans</span> left kidney</button>
-<div id="massive" style="display: none;">
+<button onclick="toggleview('massive1')" style="margin: 16px 0;">Memes i found in <span class="rainbowfast">dylans</span> left kidney</button>
+<div id="massive1" style="display: none;">
   <img src="img/massive.jpeg" width="465" height="250">
   <img src="img/brain.gif" width="465" height="250">
   <img src="img/Copy of w.webp" width="465" height="250">
@@ -100,33 +100,21 @@ body {
     Your browser does not support the audio element.
   </audio> 
 </div>
-<!--  
-This is the first section of memes.
-Second section is below
-  |
-  V
--->
 
-
-<button onclick="toggleview()" style="margin: 16px 0;">Memes i found in logans right nut</button>
-<div id="massive" style="display: none;">
+<button onclick="toggleview('massive2')" style="margin: 16px 0;">Memes i found in logans right nut</button>
+<div id="massive2" style="display: none;">
   <img src="img/Copy of w.webp" width="465" height="250">
 </div>
 
-
-
-
-
-
-
 <script>
-function toggleview() {
-  var imgDiv = document.getElementById('massive');
-  if (imgDiv.style.display === 'none') {
-    imgDiv.style.display = '';
+function toggleview(id) {
+  var el = document.getElementById(id);
+  if (el.style.display === 'none' || el.style.display === '') {
+    el.style.display = 'block';
   } else {
-    imgDiv.style.display = 'none';
+    el.style.display = 'none';
   }
 }
 </script>
+
 </body>
