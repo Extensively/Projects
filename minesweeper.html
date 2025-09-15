@@ -48,6 +48,7 @@
       background: #333;
       border-radius: 6px;
       padding: 2px;
+      --board-size: 10;
     }
 
     .cell {
@@ -56,10 +57,11 @@
       justify-content: center;
       align-items: center;
       aspect-ratio: 1 / 1; /* make square cells */
-      font-size: calc(0.6 * min(10vw, 10vh)); /* dynamic text size */
+      font-size: calc(40vh / var(--board-size)); /* scale font size with board size */
       cursor: pointer;
       border-radius: 4px;
       user-select: none;
+      overflow: hidden;
     }
 
     .cell.revealed {
@@ -135,6 +137,7 @@
       rows = cols = parseInt(sizeSlider.value);
       sizeLabel.textContent = rows;
       sizeLabel2.textContent = cols;
+      document.getElementById("board").style.setProperty('--board-size', rows);
       startGame();
     });
 
@@ -157,6 +160,7 @@
       boardElement.innerHTML = "";
       boardElement.style.gridTemplateRows = `repeat(${rows}, 1fr)`;
       boardElement.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+      boardElement.style.setProperty('--board-size', rows);
 
       for (let i = 0; i < rows * cols; i++) {
         const cell = document.createElement("div");
