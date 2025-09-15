@@ -3,45 +3,77 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Goat Minesweeper</title>
+  <title>Minesweeper</title>
   <style>
     body {
       font-family: Arial, sans-serif;
       background: #222;
       color: #fff;
       display: flex;
-      justify-content: center;
+      flex-direction: column;
       align-items: center;
       height: 100vh;
-      flex-direction: column;
+      margin: 0;
+      padding: 10px;
     }
+
+    #statusBar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      width: 80vh;
+      max-width: 90vw;
+      padding: 5px 10px;
+      background: #333;
+      border-radius: 8px;
+      margin: 10px 0;
+      font-size: 18px;
+    }
+
+    #restartBtn {
+      font-size: 22px;
+      cursor: pointer;
+      border: none;
+      background: none;
+      color: yellow;
+    }
+
     #board {
       display: grid;
       gap: 2px;
-      margin: 20px;
+      width: 80vh;
+      height: 80vh;
+      max-width: 90vw;
+      max-height: 90vw;
+      background: #333;
+      border-radius: 6px;
+      padding: 2px;
     }
+
     .cell {
-      width: 30px;
-      height: 30px;
       background: #555;
       display: flex;
       justify-content: center;
       align-items: center;
-      font-size: 18px;
+      font-size: 1.5vh;
       cursor: pointer;
       border-radius: 4px;
       user-select: none;
     }
+
     .cell.revealed {
       background: #999;
       cursor: default;
     }
+
     .cell.mine {
       background: red;
     }
+
     button, input[type=range] {
       margin: 5px;
     }
+
     button {
       padding: 8px 14px;
       font-size: 16px;
@@ -51,6 +83,7 @@
       background: #4caf50;
       color: white;
     }
+
     /* Number colors */
     .n1 { color: blue; }
     .n2 { color: green; }
@@ -64,11 +97,18 @@
 </head>
 <body>
   <h1>Minesweeper</h1>
+
   <label>
     Board Size: <span id="sizeLabel">10</span> × <span id="sizeLabel2">10</span>
   </label>
   <input type="range" id="sizeSlider" min="5" max="20" value="10" />
-  <button onclick="startGame()">Restart</button>
+
+  <div id="statusBar">
+    <span id="minesLeft">Mines: 0</span>
+    <button id="restartBtn" onclick="startGame()">🙂</button>
+    <span id="timer">Time: 0</span>
+  </div>
+
   <div id="board"></div>
 
   <script>
@@ -79,10 +119,16 @@
     let minePositions = [];
     let firstClick = true;
     let revealedCount = 0;
+    let flagsCount = 0;
+    let timer = 0;
+    let timerInterval;
 
     const sizeSlider = document.getElementById("sizeSlider");
     const sizeLabel = document.getElementById("sizeLabel");
     const sizeLabel2 = document.getElementById("sizeLabel2");
+    const minesLeftEl = document.getElementById("minesLeft");
+    const timerEl = document.getElementById("timer");
+    const restartBtn = document.getElementById("restartBtn");
 
     sizeSlider.addEventListener("input", () => {
       rows = cols = parseInt(sizeSlider.value);
@@ -92,11 +138,19 @@
     });
 
     function startGame() {
+      clearInterval(timerInterval);
+      timer = 0;
+      timerEl.textContent = "Time: 0";
+
       board = [];
       minePositions = [];
       firstClick = true;
       revealedCount = 0;
-      minesCount = Math.floor(rows * cols * 0.15); // ~15% mines
+      flagsCount = 0;
+      minesCount = Math.floor(rows * cols * 0.15);
+
+      minesLeftEl.textContent = "Mines: " + minesCount;
+      restartBtn.textContent = "🙂";
 
       const boardElement = document.getElementById("board");
       boardElement.innerHTML = "";
@@ -112,6 +166,13 @@
         boardElement.appendChild(cell);
         board.push(cell);
       }
+    }
+
+    function startTimer() {
+      timerInterval = setInterval(() => {
+        timer++;
+        timerEl.textContent = "Time: " + timer;
+      }, 1000);
     }
 
     function placeMines(safeIndex) {
@@ -130,12 +191,14 @@
 
       if (firstClick) {
         placeMines(index);
+        startTimer();
         firstClick = false;
       }
 
       if (minePositions.includes(index)) {
         e.target.classList.add("mine");
         e.target.textContent = "💣";
+        restartBtn.textContent = "☹️";
         gameOver();
         return;
       }
@@ -171,10 +234,14 @@
       if (board[index].classList.contains("flag")) {
         board[index].classList.remove("flag");
         board[index].textContent = "";
-      } else {
+        flagsCount--;
+      } else if (flagsCount < minesCount) {
         board[index].classList.add("flag");
         board[index].textContent = "🚩";
+        flagsCount++;
       }
+
+      minesLeftEl.textContent = "Mines: " + (minesCount - flagsCount);
     }
 
     function countMines(index) {
@@ -199,6 +266,7 @@
     }
 
     function gameOver() {
+      clearInterval(timerInterval);
       board.forEach((cell, i) => {
         if (minePositions.includes(i)) {
           cell.classList.add("mine");
@@ -213,11 +281,13 @@
 
     function checkWin() {
       if (revealedCount === rows * cols - minesCount) {
+        clearInterval(timerInterval);
+        restartBtn.textContent = "😎";
         board.forEach(cell => {
           cell.removeEventListener("click", revealCell);
           cell.removeEventListener("contextmenu", toggleFlag);
         });
-        alert("🎉 You Win!");
+        alert("🎉 You Win in " + timer + " seconds!");
         startGame();
       }
     }
