@@ -1,76 +1,11 @@
 <!DOCTYPE html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Goateder Minesweeper</title>
+  <title>Goat Minesweeper</title>
   <style>
-
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100vw;
-  box-sizing: border-box;
-}
-
-
-    .navbar {
-  overflow: hidden;
-  background-color: #333;
-  width: 100vw;
-  margin: 0;
-  padding: 0;
-  position: relative;
-  left: 50%;
-  right: 50%;
-  transform: translateX(-50%);
-  box-sizing: border-box;
-}
-
-.navbar a {
-  float: left;
-  font-size: 16px;
-  color: white;
-  text-align: center;
-  padding: 14px 16px;
-  text-decoration: none;
-}
-
-  .navbar a:hover {
-    background-color: red;
-}
-     @keyframes rainbow {
-      0% {
-        color: red;
-      }
-      20% {
-        color: yellow;
-      }
-      40% {
-        color: green;
-      }
-      60% {
-        color: blue;
-      }
-      80% {
-        color: violet;
-      }
-	   100% {
-        color: red;
-      }
-    }
-
-    .rainbowslow {
-     animation: rainbow 20s infinite;
-	   animation-duration: infinite;
- 	   animation-timing-function: linear;
-    }
-	
-    .rainbowfast {
-     animation: rainbow 2s infinite;
-	   animation-duration: infinite;
- 	   animation-timing-function: linear;
-    }
-body {
+    body {
       font-family: Arial, sans-serif;
       background: #222;
       color: #fff;
@@ -128,13 +63,7 @@ body {
   </style>
 </head>
 <body>
-<div class="navbar">
-    <a href="index.html">Home</a>
-    <a href="about.html">About</a>
-    <a href="memes.html">Memes</a>
-    <a href="">Minesweeper</a>
-</div>  
-<h1>Minesweeper</h1>
+  <h1>Minesweeper</h1>
   <label>
     Board Size: <span id="sizeLabel">10</span> × <span id="sizeLabel2">10</span>
   </label>
@@ -149,6 +78,7 @@ body {
     let board = [];
     let minePositions = [];
     let firstClick = true;
+    let revealedCount = 0;
 
     const sizeSlider = document.getElementById("sizeSlider");
     const sizeLabel = document.getElementById("sizeLabel");
@@ -165,6 +95,7 @@ body {
       board = [];
       minePositions = [];
       firstClick = true;
+      revealedCount = 0;
       minesCount = Math.floor(rows * cols * 0.15); // ~15% mines
 
       const boardElement = document.getElementById("board");
@@ -195,7 +126,7 @@ body {
 
     function revealCell(e) {
       const index = parseInt(e.target.dataset.index);
-      if (board[index].classList.contains("flag")) return; // Don't reveal flagged cells
+      if (board[index].classList.contains("flag")) return;
 
       if (firstClick) {
         placeMines(index);
@@ -207,6 +138,10 @@ body {
         e.target.textContent = "💣";
         gameOver();
         return;
+      }
+
+      if (!board[index].classList.contains("revealed")) {
+        revealedCount++;
       }
 
       const neighbors = countMines(index);
@@ -224,10 +159,12 @@ body {
           }
         });
       }
+
+      checkWin();
     }
 
     function toggleFlag(e) {
-      e.preventDefault(); // Stop right-click menu
+      e.preventDefault();
       const index = parseInt(e.target.dataset.index);
       if (board[index].classList.contains("revealed")) return;
 
@@ -271,6 +208,18 @@ body {
         cell.removeEventListener("contextmenu", toggleFlag);
       });
       alert("Game Over!");
+      startGame();
+    }
+
+    function checkWin() {
+      if (revealedCount === rows * cols - minesCount) {
+        board.forEach(cell => {
+          cell.removeEventListener("click", revealCell);
+          cell.removeEventListener("contextmenu", toggleFlag);
+        });
+        alert("🎉 You Win!");
+        startGame();
+      }
     }
 
     startGame();
