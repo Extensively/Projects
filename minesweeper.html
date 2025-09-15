@@ -55,7 +55,8 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      font-size: 1.5vh;
+      aspect-ratio: 1 / 1; /* make square cells */
+      font-size: calc(0.6 * min(1vw, 1vh)); /* dynamic text size */
       cursor: pointer;
       border-radius: 4px;
       user-select: none;
@@ -199,7 +200,11 @@
         e.target.classList.add("mine");
         e.target.textContent = "💣";
         restartBtn.textContent = "☹️";
-        gameOver();
+        showMines();
+        setTimeout(() => {
+          alert("Game Over!");
+          startGame();
+        }, 100);
         return;
       }
 
@@ -265,7 +270,7 @@
       return neighbors;
     }
 
-    function gameOver() {
+    function showMines() {
       clearInterval(timerInterval);
       board.forEach((cell, i) => {
         if (minePositions.includes(i)) {
@@ -275,20 +280,17 @@
         cell.removeEventListener("click", revealCell);
         cell.removeEventListener("contextmenu", toggleFlag);
       });
-      alert("Game Over!");
-      startGame();
     }
 
     function checkWin() {
       if (revealedCount === rows * cols - minesCount) {
         clearInterval(timerInterval);
         restartBtn.textContent = "😎";
-        board.forEach(cell => {
-          cell.removeEventListener("click", revealCell);
-          cell.removeEventListener("contextmenu", toggleFlag);
-        });
-        alert("🎉 You Win in " + timer + " seconds!");
-        startGame();
+        showMines();
+        setTimeout(() => {
+          alert("🎉 You Win in " + timer + " seconds!");
+          startGame();
+        }, 100);
       }
     }
 
