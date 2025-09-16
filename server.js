@@ -1,3 +1,4 @@
+console.log("HF_API_KEY =", process.env.HF_API_KEY);
 import express from "express";
 import { WebSocketServer } from "ws";
 import fetch from "node-fetch";
