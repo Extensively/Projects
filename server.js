@@ -10,30 +10,41 @@ let users = {};          // { socketId: username }
 let chatHistory = [];    // all messages in order
 
 io.on("connection", (socket) => {
-  // When user sets their username
+
   socket.on("set_username", (username) => {
     users[socket.id] = username;
+
+    // Notify all clients about the join
+    const joinMsg = { username: "System", msg: `${username} joined`, type: "system" };
+    chatHistory.push(joinMsg);
+    io.emit("chat_message", joinMsg);
 
     // Send existing chat history to the new user
     socket.emit("chat_history", chatHistory);
 
-    // Notify all clients that a new user joined
-    io.emit("user_joined", { username, users: Object.values(users) });
+    // Update online users for everyone
+    io.emit("update_users", Object.values(users));
   });
 
-  // When a chat message is sent
   socket.on("chat_message", (data) => {
-    chatHistory.push(data);      // save in history
-    io.emit("chat_message", data); // broadcast to all
+    chatHistory.push(data);
+    io.emit("chat_message", data);
   });
 
-  // When a user disconnects
   socket.on("disconnect", () => {
     const username = users[socket.id];
-    delete users[socket.id];
-    io.emit("user_left", { username, users: Object.values(users) });
+    if (username) {
+      delete users[socket.id];
+
+      const leaveMsg = { username: "System", msg: `${username} left`, type: "system" };
+      chatHistory.push(leaveMsg);
+      io.emit("chat_message", leaveMsg);
+
+      io.emit("update_users", Object.values(users));
+    }
   });
+
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`Server running on ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

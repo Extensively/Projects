@@ -1,123 +1,162 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Multi-Device Chatroom with GPT</title>
-  <style>
-    body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
-    #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
-    #userlist { border: 1px solid #ccc; background: #eef; padding: 10px; display: none; }
-    .msg { margin: 5px 0; }
-    .system { color: gray; font-style: italic; }
-    .user { font-weight: bold; }
-    .gpt { color: #0077cc; }
-  </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Multi-Device Chatroom with GPT</title>
+<style>
+  body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
+  #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
+  #userlist { border: 1px solid #ccc; background: #eef; padding: 10px; display: none; }
+  .msg { margin: 5px 0; }
+  .system { color: gray; font-style: italic; }
+  .user { font-weight: bold; }
+  .gpt { color: #0077cc; }
+</style>
 </head>
 <body>
-  <h1>Chatroom</h1>
+<h1>Chatroom</h1>
 
-  <div id="online">Online: 0</div>
-  <button id="toggleUsers">Show Users</button>
-  <div id="userlist"></div>
+<div id="online">Online: 0</div>
+<button id="toggleUsers">Show Users</button>
+<div id="userlist"></div>
 
-  <div id="chat"></div>
-  <input id="input" placeholder="Type a message..." />
-  <button id="send">Send</button>
+<div id="chat"></div>
+<input id="input" placeholder="Type a message..." />
+<button id="send">Send</button>
 
-  <!-- Socket.IO -->
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
-  <!-- Transformers.js -->
-  <script type="module">
-    import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script type="module">
+import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
 
-    const socket = io("https://projects-p0mx.onrender.com"); // change to your deployed server
-    const chat = document.getElementById("chat");
-    const input = document.getElementById("input");
-    const sendBtn = document.getElementById("send");
-    const online = document.getElementById("online");
-    const userlist = document.getElementById("userlist");
-    const toggleUsers = document.getElementById("toggleUsers");
+const socket = io("https://YOUR-RENDER-APP.onrender.com"); // change to your deployed server
+const chat = document.getElementById("chat");
+const input = document.getElementById("input");
+const sendBtn = document.getElementById("send");
+const online = document.getElementById("online");
+const userlist = document.getElementById("userlist");
+const toggleUsers = document.getElementById("toggleUsers");
 
-    let username = prompt("Enter your username:");
-    socket.emit("set_username", username);
+let username = prompt("Enter your username:");
+socket.emit("set_username", username);
 
-    function addMessage(sender, text, cls="") {
-      const div = document.createElement("div");
-      div.className = "msg " + cls;
-      div.innerHTML = `<span class="user">${sender}:</span> ${text}`;
-      chat.appendChild(div);
-      chat.scrollTop = chat.scrollHeight;
-    }
+function addMessage(sender, text, cls="") {
+  const div = document.createElement("div");
+  div.className = "msg " + cls;
+  div.innerHTML = `<span class="user">${sender}:</span> ${text}`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
 
-    // Update users list and online count
-    function updateUsers(users) {
-      online.innerText = "Online: " + users.length;
-      userlist.innerHTML = users.join("<br>");
-    }
+function updateUsers(users) {
+  online.innerText = "Online: " + users.length;
+  userlist.innerHTML = users.join("<br>");
+}
 
-    toggleUsers.onclick = () => {
-      userlist.style.display = userlist.style.display === "none" ? "block" : "none";
-      toggleUsers.innerText = userlist.style.display === "none" ? "Show Users" : "Hide Users";
-    };
+toggleUsers.onclick = () => {
+  userlist.style.display = userlist.style.display === "none" ? "block" : "none";
+  toggleUsers.innerText = userlist.style.display === "none" ? "Show Users" : "Hide Users";
+};
 
-    // --- Socket.IO events ---
-    socket.on("chat_history", (history) => {
+// --- Socket.IO events ---
+socket.on("chat_history", (history) => {
+  chat.innerHTML = "";
+  history.forEach(msg => {
+    const cls = msg.type === "system" ? "system" : (msg.username === "GPT" ? "gpt" : "");
+    addMessage(msg.username, msg.msg, cls);
+  });
+});
+
+socket.on("chat_message", (msg) => {
+  const cls = msg.type === "system" ? "system" : (msg.username === "GPT" ? "gpt" : "");
+  addMessage(msg.username, msg.msg, cls);
+});
+
+socket.on("update_users", (users) => {
+  updateUsers(users);
+});
+
+// --- Sending messages + GPT handling ---
+sendBtn.onclick = () => {
+  const msg = input.value.trim();
+  if (!msg) return;
+
+  // Slash commands
+  if (msg.startsWith("/")) {
+    handleCommand(msg);
+    input.value = "";
+    return;
+  }
+
+  socket.emit("chat_message", { username, msg });
+  input.value = "";
+
+  if (msg.startsWith("@gpt")) handleGPT(msg.replace("@gpt", "").trim());
+};
+
+
+  if (msg.startsWith("@gpt")) {
+    handleGPT(msg.replace("@gpt", "").trim());
+  }
+};
+
+input.addEventListener("keypress", (e) => {
+  if (e.key === "Enter") sendBtn.click();
+});
+
+// --- Client-side GPT ---
+let generator = null;
+async function loadModel() {
+  if (!generator) {
+    addMessage("GPT", "Loading GPT model...", "gpt");
+
+    generator = await pipeline("text-generation", "Xenova/gpt2", {
+      progress_callback: (progress) => {
+        // progress is between 0 and 1
+        const percent = Math.floor(progress * 100);
+        // update last GPT message
+        const last = chat.querySelector(".msg.gpt:last-child");
+        if (last) last.innerText = `GPT model downloading: ${percent}%`;
+      }
+    });
+
+    // Once done
+    addMessage("GPT", "Model loaded! You can now use @gpt.", "gpt");
+  }
+}
+
+
+async function handleGPT(prompt) {
+  await loadModel();
+  addMessage("GPT", "thinking...", "gpt");
+
+  const promptTemplate = `You are a helpful AI chatbot. User: ${prompt}\nAI:`;
+  const output = await generator(promptTemplate, {
+    max_new_tokens: 80,
+    temperature: 0.7,
+    top_p: 0.9,
+    do_sample: true
+  });
+
+  const reply = output[0].generated_text.replace(promptTemplate, "").trim();
+  socket.emit("chat_message", { username: "GPT", msg: reply });
+}
+
+function handleCommand(msg) {
+  const parts = msg.split(" ");
+  const command = parts[0].toLowerCase();
+
+  switch (command) {
+    case "/clear":
       chat.innerHTML = "";
-      history.forEach(msg => {
-        addMessage(msg.username, msg.msg, msg.username === "GPT" ? "gpt" : "");
-      });
-    });
+      socket.emit("chat_message", { username: "System", msg: `${username} cleared the chat`, type: "system" });
+      break;
 
-    socket.on("chat_message", (data) => {
-      addMessage(data.username, data.msg, data.username === "GPT" ? "gpt" : "");
-    });
+    default:
+      addMessage("System", `Unknown command: ${command}`, "system");
+  }
+}
 
-    socket.on("user_joined", (data) => {
-      addMessage("System", `${data.username} joined`, "system");
-      updateUsers(data.users);
-    });
-
-    socket.on("user_left", (data) => {
-      addMessage("System", `${data.username} left`, "system");
-      updateUsers(data.users);
-    });
-
-    // --- Send message + trigger GPT ---
-    sendBtn.onclick = () => {
-      if (input.value.trim() !== "") {
-        const msg = input.value.trim();
-        socket.emit("chat_message", { username, msg });
-        input.value = "";
-
-        if (msg.startsWith("@nathangpt")) {
-          handleGPT(msg.replace("@nathangpt", "").trim());
-        }
-      }
-    };
-
-    input.addEventListener("keypress", (e) => {
-      if (e.key === "Enter") sendBtn.click();
-    });
-
-    // --- Client-side GPT ---
-    let generator = null;
-    async function loadModel() {
-      if (!generator) {
-        addMessage("NATHANGPT", "Loading GPT model (first time might take a minute)...", "gpt");
-        generator = await pipeline("text-generation", "Xenova/distilgpt2");
-      }
-    }
-
-    async function handleGPT(prompt) {
-      await loadModel();
-      addMessage("NATHANGPT", "thinking...", "gpt");
-
-      const output = await generator(prompt, { max_new_tokens: 40 });
-      const reply = output[0].generated_text.replace(prompt, "").trim();
-
-      socket.emit("chat_message", { username: "NATHANGPT", msg: reply });
-    }
-  </script>
+</script>
 </body>
 </html>
