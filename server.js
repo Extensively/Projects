@@ -19,9 +19,9 @@ wss.on("connection", (ws) => {
     clients.forEach(c => c.send(text));
 
     // If message starts with @gpt, ask OpenAI
-    if (text.startsWith("@gpt")) {
-      const userPrompt = text.replace("@gpt", "").trim();
-
+    if (text.startsWith("@nathangpt")) {
+      const userPrompt = text.replace("@nathangpt", "").trim();
+      console.log("Fetching GPT:", userPrompt)
       try {
         const response = await fetch("https://api.openai.com/v1/chat/completions", {
           method: "POST",
