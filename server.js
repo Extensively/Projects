@@ -8,7 +8,7 @@ const server = app.listen(port, () => console.log(`Server running on ${port}`));
 const wss = new WebSocketServer({ server });
 
 let clients = [];
-
+console.log(process.env.OPENAI_API_KEY);
 wss.on("connection", (ws) => {
   clients.push(ws);
 
