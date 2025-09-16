@@ -91,14 +91,9 @@ sendBtn.onclick = () => {
   socket.emit("chat_message", { username, msg });
   input.value = "";
 
-  if (msg.startsWith("@gpt")) handleGPT(msg.replace("@gpt", "").trim());
+  if (msg.startsWith("@nathangpt")) handleGPT(msg.replace("@nathangpt", "").trim());
 };
 
-
-  if (msg.startsWith("@gpt")) {
-    handleGPT(msg.replace("@gpt", "").trim());
-  }
-};
 
 input.addEventListener("keypress", (e) => {
   if (e.key === "Enter") sendBtn.click();
@@ -121,14 +116,14 @@ async function loadModel() {
     });
 
     // Once done
-    addMessage("GPT", "Model loaded! You can now use @gpt.", "gpt");
+    addMessage("NATHANGPT", "Model loaded! You can now use @nathangpt.", "gpt");
   }
 }
 
 
 async function handleGPT(prompt) {
   await loadModel();
-  addMessage("GPT", "thinking...", "gpt");
+  addMessage("NATHANGPT", "thinking...", "gpt");
 
   const promptTemplate = `You are a helpful AI chatbot. User: ${prompt}\nAI:`;
   const output = await generator(promptTemplate, {
@@ -139,7 +134,7 @@ async function handleGPT(prompt) {
   });
 
   const reply = output[0].generated_text.replace(promptTemplate, "").trim();
-  socket.emit("chat_message", { username: "GPT", msg: reply });
+  socket.emit("chat_message", { username: "NATHANGPT", msg: reply });
 }
 
 function handleCommand(msg) {
