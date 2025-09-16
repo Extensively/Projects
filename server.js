@@ -18,18 +18,19 @@ wss.on("connection", (ws) => {
     const text = msg.toString();
     console.log("Received:", text);
 
-    // Broadcast raw user message
+    // Broadcast user message to everyone
     clients.forEach(c => c.send(text));
 
-    // If message starts with @gpt, call Hugging Face
+    // Check for @gpt trigger
     if (text.trim().toLowerCase().startsWith("@gpt")) {
       const userPrompt = text.replace(/@gpt/i, "").trim();
       if (!userPrompt) return;
 
       try {
-        console.log("Calling Hugging Face:", "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-125M");
+        console.log("Calling Hugging Face:", "https://api-inference.huggingface.co/models/distilgpt2");
+
         const response = await fetch(
-          "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-125M", // ✅ Correct URL
+          "https://api-inference.huggingface.co/models/distilgpt2",
           {
             method: "POST",
             headers: {
@@ -39,7 +40,9 @@ wss.on("connection", (ws) => {
             body: JSON.stringify({ inputs: userPrompt })
           }
         );
+
         console.log("Response status:", response.status);
+
         if (!response.ok) {
           const errText = await response.text();
           console.error("Hugging Face request failed:", response.status, errText);
@@ -48,6 +51,8 @@ wss.on("connection", (ws) => {
         }
 
         const data = await response.json();
+        console.log("Hugging Face response:", data);
+
         const aiReply =
           "🤖 GPT: " +
           (data[0]?.generated_text?.substring(userPrompt.length).trim() || "Sorry, no response.");
