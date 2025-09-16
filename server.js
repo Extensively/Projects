@@ -35,7 +35,14 @@ wss.on("connection", (ws) => {
           })
         });
 
+        if (!response.ok) {
+          const errText = await response.text();
+          console.error("OpenAI request failed:", response.status, errText);
+          return;
+        }
+
         const data = await response.json();
+        console.log(data);
         const aiReply = "🤖 GPT: " + data.choices[0].message.content;
 
         // Send reply to everyone
