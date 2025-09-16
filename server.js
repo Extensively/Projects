@@ -1,6 +1,7 @@
 import express from "express";
 import { WebSocketServer } from "ws";
 import fetch from "node-fetch";
+import { OpenAI } from "openai";
 
 const app = express();
 const port = process.env.PORT || 3000;
