@@ -18,17 +18,18 @@ wss.on("connection", (ws) => {
     const text = msg.toString();
     console.log("Received:", text);
 
-    // Broadcast raw user message to everyone
+    // Broadcast raw user message
     clients.forEach(c => c.send(text));
 
-    // Trigger GPT only when message starts with @gpt
+    // If message starts with @gpt, call Hugging Face
     if (text.trim().toLowerCase().startsWith("@gpt")) {
       const userPrompt = text.replace(/@gpt/i, "").trim();
       if (!userPrompt) return;
 
       try {
+        console.log("Calling Hugging Face:", "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-125M");
         const response = await fetch(
-          "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-125M",
+          "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-125M", // ✅ Correct URL
           {
             method: "POST",
             headers: {
@@ -38,7 +39,7 @@ wss.on("connection", (ws) => {
             body: JSON.stringify({ inputs: userPrompt })
           }
         );
-
+        console.log("Response status:", response.status);
         if (!response.ok) {
           const errText = await response.text();
           console.error("Hugging Face request failed:", response.status, errText);
