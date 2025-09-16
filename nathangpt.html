@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Chatroom</title>
+  <title>Multi-Device Chatroom with GPT</title>
   <style>
     body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
     #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
@@ -25,20 +25,13 @@
   <input id="input" placeholder="Type a message..." />
   <button id="send">Send</button>
 
-  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
-    // Receive chat history on connection
-socket.on("chat_history", (history) => {
-  chat.innerHTML = ""; // clear any old messages
-  history.forEach(msg => {
-    addMessage(msg.username, msg.msg, msg.username === "GPT" ? "gpt" : "");
-  });
-});
-
-  </script>
+  <!-- Socket.IO -->
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <!-- Transformers.js -->
   <script type="module">
     import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
 
-    const socket = io("https://YOUR-RENDER-APP.onrender.com"); // change this
+    const socket = io("https://projects-p0mx.onrender.com"); // change to your deployed server
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
     const sendBtn = document.getElementById("send");
@@ -57,6 +50,25 @@ socket.on("chat_history", (history) => {
       chat.scrollTop = chat.scrollHeight;
     }
 
+    // Update users list and online count
+    function updateUsers(users) {
+      online.innerText = "Online: " + users.length;
+      userlist.innerHTML = users.join("<br>");
+    }
+
+    toggleUsers.onclick = () => {
+      userlist.style.display = userlist.style.display === "none" ? "block" : "none";
+      toggleUsers.innerText = userlist.style.display === "none" ? "Show Users" : "Hide Users";
+    };
+
+    // --- Socket.IO events ---
+    socket.on("chat_history", (history) => {
+      chat.innerHTML = "";
+      history.forEach(msg => {
+        addMessage(msg.username, msg.msg, msg.username === "GPT" ? "gpt" : "");
+      });
+    });
+
     socket.on("chat_message", (data) => {
       addMessage(data.username, data.msg, data.username === "GPT" ? "gpt" : "");
     });
@@ -71,15 +83,15 @@ socket.on("chat_history", (history) => {
       updateUsers(data.users);
     });
 
+    // --- Send message + trigger GPT ---
     sendBtn.onclick = () => {
       if (input.value.trim() !== "") {
         const msg = input.value.trim();
         socket.emit("chat_message", { username, msg });
         input.value = "";
 
-        // If this message is an @gpt prompt, generate reply locally
-        if (msg.startsWith("@gpt")) {
-          handleGPT(msg.replace("@gpt", "").trim());
+        if (msg.startsWith("@nathangpt")) {
+          handleGPT(msg.replace("@nathangpt", "").trim());
         }
       }
     };
@@ -88,33 +100,23 @@ socket.on("chat_history", (history) => {
       if (e.key === "Enter") sendBtn.click();
     });
 
-    function updateUsers(users) {
-      online.innerText = "Online: " + users.length;
-      userlist.innerHTML = users.join("<br>");
-    }
-
-    toggleUsers.onclick = () => {
-      userlist.style.display = userlist.style.display === "none" ? "block" : "none";
-      toggleUsers.innerText = userlist.style.display === "none" ? "Show Users" : "Hide Users";
-    };
-
-    // --- GPT LOCAL INFERENCE ---
+    // --- Client-side GPT ---
     let generator = null;
     async function loadModel() {
       if (!generator) {
-        addMessage("GPT", "Loading model (first time might take a minute)...", "gpt");
+        addMessage("NATHANGPT", "Loading GPT model (first time might take a minute)...", "gpt");
         generator = await pipeline("text-generation", "Xenova/distilgpt2");
       }
     }
 
     async function handleGPT(prompt) {
       await loadModel();
-      addMessage("GPT", "thinking...", "gpt");
+      addMessage("NATHANGPT", "thinking...", "gpt");
 
       const output = await generator(prompt, { max_new_tokens: 40 });
       const reply = output[0].generated_text.replace(prompt, "").trim();
 
-      socket.emit("chat_message", { username: "GPT", msg: reply });
+      socket.emit("chat_message", { username: "NATHANGPT", msg: reply });
     }
   </script>
 </body>

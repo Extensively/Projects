@@ -6,27 +6,25 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-let users = {}; // { socketId: username }
-let chatHistory = []; // stores all messages
+let users = {};          // { socketId: username }
+let chatHistory = [];    // all messages in order
 
 io.on("connection", (socket) => {
-  // When a new user sets their username
+  // When user sets their username
   socket.on("set_username", (username) => {
     users[socket.id] = username;
 
-    // Send current chat history to this new user
+    // Send existing chat history to the new user
     socket.emit("chat_history", chatHistory);
 
+    // Notify all clients that a new user joined
     io.emit("user_joined", { username, users: Object.values(users) });
   });
 
-  // When a message is sent
+  // When a chat message is sent
   socket.on("chat_message", (data) => {
-    // Save to chat history
-    chatHistory.push(data);
-
-    // Broadcast to everyone
-    io.emit("chat_message", data);
+    chatHistory.push(data);      // save in history
+    io.emit("chat_message", data); // broadcast to all
   });
 
   // When a user disconnects
