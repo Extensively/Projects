@@ -32,7 +32,7 @@ wss.on("connection", (ws) => {
 
       try {
         const response = await fetch(
-          "https://api-inference.huggingface.co/models/gpt2", // Replace with another model if desired
+          "https://api-inference.huggingface.co/models/openai-community/gpt2", // Replace with another model if desired
           {
             method: "POST",
             headers: {
