@@ -1,5 +1,5 @@
 {
-  "name": "chat-backend",
+  "name": "Projects",
   "version": "1.0.0",
   "description": "AI chat room backend with WebSockets + OpenAI",
   "main": "server.js",

@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: chat-backend
+    name: Projects
     env: node
     plan: free
     buildCommand: "npm install"
