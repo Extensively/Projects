@@ -10,6 +10,10 @@ const wss = new WebSocketServer({ server });
 
 let clients = [];
 
+// 🔧 Choose your Hugging Face model here (must support Inference API!)
+const HF_MODEL = "openai/gpt-oss-20b:nebius";  
+const HF_URL = "https://router.huggingface.co/v1";
+
 wss.on("connection", (ws) => {
   clients.push(ws);
   console.log("New client connected. Total clients:", clients.length);
@@ -18,28 +22,25 @@ wss.on("connection", (ws) => {
     const text = msg.toString();
     console.log("Received:", text);
 
-    // Broadcast user message to everyone
+    // Broadcast user message to all clients
     clients.forEach(c => c.send(text));
 
-    // Check for @gpt trigger
+    // GPT trigger
     if (text.trim().toLowerCase().startsWith("@gpt")) {
       const userPrompt = text.replace(/@gpt/i, "").trim();
       if (!userPrompt) return;
 
       try {
-        console.log("Calling Hugging Face:", "https://huggingface.co/openai-community/gpt2");
+        console.log(`Calling Hugging Face model: ${HF_MODEL}`);
 
-        const response = await fetch(
-          "https://huggingface.co/openai-community/gpt2",
-          {
-            method: "POST",
-            headers: {
-              "Authorization": `Bearer ${process.env.HF_API_KEY}`,
-              "Content-Type": "application/json"
-            },
-            body: JSON.stringify({ inputs: userPrompt })
-          }
-        );
+        const response = await fetch(HF_URL, {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${process.env.HF_API_KEY}`,
+            "Content-Type": "application/json"
+          },
+          body: JSON.stringify({ inputs: userPrompt })
+        });
 
         console.log("Response status:", response.status);
 
