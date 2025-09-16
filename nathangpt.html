@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Chat Room Beta</title>
+  <style>
+    body { font-family: Arial; max-width: 600px; margin: auto; }
+    #chat { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
+    #input { width: 75%; padding: 5px; }
+    #send { width: 20%; padding: 5px; }
+    .msg { margin: 5px 0; }
+  </style>
+</head>
+<body>
+  <h2>Shared AI Chat Room</h2>
+  <div id="chat"></div>
+  <input id="input" placeholder="Type a message...">
+  <button id="send">Send</button>
+
+  <script>
+    const socket = new WebSocket("wss://your-app.onrender.com"); // 👈 replace with backend URL
+    const chat = document.getElementById("chat");
+    const input = document.getElementById("input");
+    const send = document.getElementById("send");
+
+    function addMessage(text) {
+      const msg = document.createElement("div");
+      msg.className = "msg";
+      msg.textContent = text;
+      chat.appendChild(msg);
+      chat.scrollTop = chat.scrollHeight;
+    }
+
+    socket.onmessage = (event) => addMessage(event.data);
+
+    send.onclick = () => {
+      if (input.value.trim()) {
+        socket.send(input.value);
+        input.value = "";
+      }
+    };
+
+    input.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") send.onclick();
+    });
+  </script>
+</body>
+</html>
