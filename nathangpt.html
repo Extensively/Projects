@@ -1,47 +1,67 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Chat Room</title>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Chatroom with GPT</title>
   <style>
-    body { font-family: Arial; max-width: 600px; margin: auto; }
-    #chat { border: 1px solid #ccc; height: 400px; overflow-y: scroll; padding: 10px; margin-bottom: 10px; }
-    #input { width: 75%; padding: 5px; }
-    #send { width: 20%; padding: 5px; }
+    body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
+    #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
+    #input { width: 80%; }
+    #send { width: 15%; }
     .msg { margin: 5px 0; }
+    .user { font-weight: bold; }
+    .gpt { color: #0077cc; }
   </style>
 </head>
 <body>
-  <h2>Shared AI Chat Room</h2>
+  <h1>Chatroom</h1>
   <div id="chat"></div>
-  <input id="input" placeholder="Type a message...">
+  <input id="input" placeholder="Type a message..." />
   <button id="send">Send</button>
 
-  <script>
-    const socket = new WebSocket("https://projects-p0mx.onrender.com"); // 👈 replace with your backend URL
+  <script type="module">
+    import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
+
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
-    const send = document.getElementById("send");
+    const sendBtn = document.getElementById("send");
 
-    function addMessage(text) {
-      const msg = document.createElement("div");
-      msg.className = "msg";
-      msg.textContent = text;
-      chat.appendChild(msg);
+    // Load GPT-2 model in the browser
+    const generator = await pipeline("text-generation", "Xenova/gpt2");
+
+    function addMessage(sender, text, cls="") {
+      const div = document.createElement("div");
+      div.className = "msg " + cls;
+      div.innerHTML = `<span class="user">${sender}:</span> ${text}`;
+      chat.appendChild(div);
       chat.scrollTop = chat.scrollHeight;
     }
 
-    socket.onmessage = (event) => addMessage(event.data);
+    async function handleMessage(text) {
+      addMessage("You", text);
 
-    send.onclick = () => {
-      if (input.value.trim()) {
-        socket.send(input.value);
+      if (text.startsWith("@gpt")) {
+        const prompt = text.replace("@gpt", "").trim();
+        addMessage("GPT", "thinking...", "gpt");
+
+        const output = await generator(prompt, { max_new_tokens: 40 });
+        const reply = output[0].generated_text.replace(prompt, "").trim();
+
+        // Replace the "thinking..." message with the reply
+        chat.lastChild.innerHTML = `<span class="user">GPT:</span> ${reply}`;
+      }
+    }
+
+    sendBtn.onclick = () => {
+      if (input.value.trim() !== "") {
+        handleMessage(input.value.trim());
         input.value = "";
       }
     };
 
-    input.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") send.onclick();
+    input.addEventListener("keypress", (e) => {
+      if (e.key === "Enter") sendBtn.click();
     });
   </script>
 </body>
