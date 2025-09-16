@@ -3,32 +3,51 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Chatroom with GPT</title>
+  <title>Chatroom</title>
   <style>
     body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
     #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
-    #input { width: 80%; }
-    #send { width: 15%; }
+    #userlist { border: 1px solid #ccc; background: #eef; padding: 10px; display: none; }
     .msg { margin: 5px 0; }
+    .system { color: gray; font-style: italic; }
     .user { font-weight: bold; }
     .gpt { color: #0077cc; }
   </style>
 </head>
 <body>
   <h1>Chatroom</h1>
+
+  <div id="online">Online: 0</div>
+  <button id="toggleUsers">Show Users</button>
+  <div id="userlist"></div>
+
   <div id="chat"></div>
   <input id="input" placeholder="Type a message..." />
   <button id="send">Send</button>
 
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js">
+    // Receive chat history on connection
+socket.on("chat_history", (history) => {
+  chat.innerHTML = ""; // clear any old messages
+  history.forEach(msg => {
+    addMessage(msg.username, msg.msg, msg.username === "GPT" ? "gpt" : "");
+  });
+});
+
+  </script>
   <script type="module">
     import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
 
+    const socket = io("https://YOUR-RENDER-APP.onrender.com"); // change this
     const chat = document.getElementById("chat");
     const input = document.getElementById("input");
     const sendBtn = document.getElementById("send");
+    const online = document.getElementById("online");
+    const userlist = document.getElementById("userlist");
+    const toggleUsers = document.getElementById("toggleUsers");
 
-    // Load GPT-2 model in the browser
-    const generator = await pipeline("text-generation", "Xenova/gpt2");
+    let username = prompt("Enter your username:");
+    socket.emit("set_username", username);
 
     function addMessage(sender, text, cls="") {
       const div = document.createElement("div");
@@ -38,31 +57,65 @@
       chat.scrollTop = chat.scrollHeight;
     }
 
-    async function handleMessage(text) {
-      addMessage("You", text);
+    socket.on("chat_message", (data) => {
+      addMessage(data.username, data.msg, data.username === "GPT" ? "gpt" : "");
+    });
 
-      if (text.startsWith("@gpt")) {
-        const prompt = text.replace("@gpt", "").trim();
-        addMessage("GPT", "thinking...", "gpt");
+    socket.on("user_joined", (data) => {
+      addMessage("System", `${data.username} joined`, "system");
+      updateUsers(data.users);
+    });
 
-        const output = await generator(prompt, { max_new_tokens: 40 });
-        const reply = output[0].generated_text.replace(prompt, "").trim();
-
-        // Replace the "thinking..." message with the reply
-        chat.lastChild.innerHTML = `<span class="user">GPT:</span> ${reply}`;
-      }
-    }
+    socket.on("user_left", (data) => {
+      addMessage("System", `${data.username} left`, "system");
+      updateUsers(data.users);
+    });
 
     sendBtn.onclick = () => {
       if (input.value.trim() !== "") {
-        handleMessage(input.value.trim());
+        const msg = input.value.trim();
+        socket.emit("chat_message", { username, msg });
         input.value = "";
+
+        // If this message is an @gpt prompt, generate reply locally
+        if (msg.startsWith("@gpt")) {
+          handleGPT(msg.replace("@gpt", "").trim());
+        }
       }
     };
 
     input.addEventListener("keypress", (e) => {
       if (e.key === "Enter") sendBtn.click();
     });
+
+    function updateUsers(users) {
+      online.innerText = "Online: " + users.length;
+      userlist.innerHTML = users.join("<br>");
+    }
+
+    toggleUsers.onclick = () => {
+      userlist.style.display = userlist.style.display === "none" ? "block" : "none";
+      toggleUsers.innerText = userlist.style.display === "none" ? "Show Users" : "Hide Users";
+    };
+
+    // --- GPT LOCAL INFERENCE ---
+    let generator = null;
+    async function loadModel() {
+      if (!generator) {
+        addMessage("GPT", "Loading model (first time might take a minute)...", "gpt");
+        generator = await pipeline("text-generation", "Xenova/distilgpt2");
+      }
+    }
+
+    async function handleGPT(prompt) {
+      await loadModel();
+      addMessage("GPT", "thinking...", "gpt");
+
+      const output = await generator(prompt, { max_new_tokens: 40 });
+      const reply = output[0].generated_text.replace(prompt, "").trim();
+
+      socket.emit("chat_message", { username: "GPT", msg: reply });
+    }
   </script>
 </body>
 </html>
