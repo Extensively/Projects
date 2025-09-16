@@ -1,10 +1,6 @@
-console.log("HF_API_KEY =", process.env.HF_API_KEY);
 import express from "express";
 import { WebSocketServer } from "ws";
 import fetch from "node-fetch";
-import dotenv from "dotenv";
-
-dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
@@ -22,17 +18,17 @@ wss.on("connection", (ws) => {
     const text = msg.toString();
     console.log("Received:", text);
 
-    // Broadcast to everyone
+    // Broadcast raw user message to everyone
     clients.forEach(c => c.send(text));
 
-    // Check for @gpt command (case-insensitive)
-    if (text.trim().toLowerCase().startsWith("@nathangpt")) {
-      const userPrompt = text.replace(/@nathangpt/i, "").trim();
+    // Trigger GPT only when message starts with @gpt
+    if (text.trim().toLowerCase().startsWith("@gpt")) {
+      const userPrompt = text.replace(/@gpt/i, "").trim();
       if (!userPrompt) return;
 
       try {
         const response = await fetch(
-          "https://api-inference.huggingface.co/models/openai-community/gpt2", // Replace with another model if desired
+          "https://api-inference.huggingface.co/models/EleutherAI/gpt-neo-125M",
           {
             method: "POST",
             headers: {
@@ -46,17 +42,19 @@ wss.on("connection", (ws) => {
         if (!response.ok) {
           const errText = await response.text();
           console.error("Hugging Face request failed:", response.status, errText);
-          clients.forEach(c => c.send("🤖 NATHANGPT: Sorry, I can't respond right now."));
+          clients.forEach(c => c.send("🤖 GPT: Sorry, I can't respond right now."));
           return;
         }
 
         const data = await response.json();
-        const aiReply = "🤖 NATHANGPT: " + (data[0]?.generated_text || "Sorry, no response.");
+        const aiReply =
+          "🤖 GPT: " +
+          (data[0]?.generated_text?.substring(userPrompt.length).trim() || "Sorry, no response.");
         clients.forEach(c => c.send(aiReply));
 
       } catch (err) {
         console.error("Hugging Face error:", err);
-        clients.forEach(c => c.send("🤖 NATHANGPT: Sorry, something went wrong."));
+        clients.forEach(c => c.send("🤖 GPT: Sorry, something went wrong."));
       }
     }
   });
