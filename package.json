@@ -1,7 +1,7 @@
 {
   "name": "Projects",
   "version": "1.0.0",
-  "description": "AI chat room backend with WebSockets + OpenAI",
+  "description": "AI chat room backend with WebSockets + Hugging Face",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -10,6 +10,7 @@
   "dependencies": {
     "express": "^4.18.2",
     "ws": "^8.14.2",
-    "node-fetch": "^3.3.2"
+    "node-fetch": "^3.3.2",
+    "dotenv": "^16.4.5"
   }
 }
