@@ -3,8 +3,9 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GOATED CHATROOM</title>
+<title>Goated Chatroom</title>
 <style>
+
 
   .navbar {
     display: flex;
@@ -49,8 +50,8 @@ html, body {
   width: 100vw;
   box-sizing: border-box;
 }
-  body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
-  #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
+  body { font-family: sans-serif; background: #4e4e4e; padding: 20px; }
+  #chat { border: 1px solid #5b5b5b; background: #434343; padding: 10px; height: 300px; overflow-y: auto; }
   #userlist { border: 1px solid #ccc; background: #eef; padding: 10px; display: none; }
   .msg { margin: 5px 0; }
   .system { color: gray; font-style: italic; }
@@ -99,6 +100,7 @@ html, body {
   <a href="minesweeper.html">Minesweeper</a>
   <a class="rainbowfast">Chat</a>
 </div>
+<br>
 <h1>Goated Chat.</h1>
 
 <div id="online">Online: 0</div>
@@ -110,6 +112,9 @@ html, body {
 <button id="send">Send</button>
 <input type="file" id="imageInput" accept="image/*" />
 <button id="sendImage">Send Image</button>
+<br><br>
+<p>Commands: <code>/clear</code> to clear chat.</p>
+<p>Mention <code>@nathangpt</code> to chat with the AI bot
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script type="module">
