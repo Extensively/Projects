@@ -4,7 +4,7 @@
 <link rel="icon" href="/img/roach.ico">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Goated Chatroom V1.3.4</title>
+<title>Goated Chatroom V1.4.0</title>
 <style>
 
 
@@ -102,17 +102,25 @@ html, body {
   <a class="rainbowfast">Chat</a>
 </div>
 <br>
-<h1>Goated Chat. V1.3.4</h1>
+<h1>Goated Chat. V1.4.0</h1>
 
 <div id="online">Online: 0</div>
 <button id="toggleUsers">Show Users</button>
 <div id="userlist"></div>
 
 <div id="chat"></div>
-<input id="input" placeholder="Type a message..." />
-<button id="send">Send</button>
-<input type="file" id="imageInput" accept="image/*" />
-<button id="sendImage">Send Image</button>
+<div style="display: flex; align-items: center; gap: 8px;">
+  <input id="input" placeholder="Type a message..." />
+  <button id="send">Send</button>
+  <div id="gif-panel-container" style="position: relative;">
+    <button id="gif-panel-btn" style="font-size: 18px; padding: 4px 8px; cursor: pointer;">GIFs</button>
+    <div id="gif-panel" style="display: none; position: absolute; bottom: 110%; left: 0; background: #222; border: 1px solid #555; padding: 8px; border-radius: 8px; z-index: 2000; min-width: 180px; max-width: 320px; max-height: 180px; overflow-y: auto; box-shadow: 0 2px 8px #000a;">
+      <!-- GIFs will be inserted here by JS -->
+    </div>
+  </div>
+  <input type="file" id="imageInput" accept="image/*" />
+  <button id="sendImage">Send Image</button>
+</div>
 <br><br>
 <p>Commands: <code>/clear</code> to clear chat.</p>
 <p>Mention <code>@nathangpt</code> to chat with the AI bot
@@ -137,9 +145,68 @@ socket.emit("set_username", username);
 // Map of emote codes to image paths (add more here)
 const emoteMap = {
   ":dia:": "img/dia.gif",
-  // Example: ":goat:": "img/goat.jpg",
+  ":goat:": "img/goat.jpg",
+  ":brain:": "img/brain.gif",
+  ":nope:": "img/nope.gif",
   // Add more emotes as needed
 };
+// --- GIF/Emote Panel Logic ---
+const gifPanelBtn = document.getElementById("gif-panel-btn");
+const gifPanel = document.getElementById("gif-panel");
+const inputBox = document.getElementById("input");
+
+// Populate the GIF panel with all emotes
+function renderGifPanel() {
+  gifPanel.innerHTML = '';
+  Object.entries(emoteMap).forEach(([code, src]) => {
+    const btn = document.createElement('button');
+    btn.style.border = 'none';
+    btn.style.background = 'none';
+    btn.style.cursor = 'pointer';
+    btn.style.margin = '2px';
+    btn.title = code;
+    btn.innerHTML = `<img src="${src}" alt="${code}" style="height:32px;width:auto;vertical-align:middle;">`;
+    btn.onclick = (e) => {
+      e.preventDefault();
+      insertAtCursor(inputBox, code);
+      gifPanel.style.display = 'none';
+      inputBox.focus();
+    };
+    gifPanel.appendChild(btn);
+  });
+}
+
+// Insert text at cursor position in input
+function insertAtCursor(input, text) {
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  const before = input.value.substring(0, start);
+  const after = input.value.substring(end);
+  input.value = before + text + after;
+  // Move cursor after inserted text
+  input.selectionStart = input.selectionEnd = start + text.length;
+}
+
+// Show/hide panel on hover or focus
+gifPanelBtn.addEventListener('mouseenter', () => {
+  renderGifPanel();
+  gifPanel.style.display = 'block';
+});
+gifPanelBtn.addEventListener('mouseleave', () => {
+  setTimeout(() => { if (!gifPanel.matches(':hover')) gifPanel.style.display = 'none'; }, 150);
+});
+gifPanel.addEventListener('mouseleave', () => {
+  gifPanel.style.display = 'none';
+});
+gifPanel.addEventListener('mouseenter', () => {
+  gifPanel.style.display = 'block';
+});
+// Also show on click (for mobile/touch)
+gifPanelBtn.addEventListener('click', (e) => {
+  e.preventDefault();
+  renderGifPanel();
+  gifPanel.style.display = gifPanel.style.display === 'block' ? 'none' : 'block';
+});
 
 function emoteReplace(text) {
   // Build a regex that matches any emote code in emoteMap
