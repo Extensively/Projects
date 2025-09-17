@@ -114,7 +114,8 @@ html, body {
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script type="module">
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
-
+const imageInput = document.getElementById("imageInput");
+const sendImageBtn = document.getElementById("sendImage");
 const socket = io("https://projects-p0mx.onrender.com"); // change to your deployed server
 const chat = document.getElementById("chat");
 const input = document.getElementById("input");
@@ -234,6 +235,23 @@ async function handleGPT(prompt) {
   const reply = output[0].generated_text.replace(promptTemplate, "").trim();
   socket.emit("chat_message", { username: "NATHANGPT", msg: reply });
 }
+sendImageBtn.onclick = () => {
+  const file = imageInput.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result; // base64 image string
+    socket.emit("chat_message", {
+      username,
+      type: "image",
+      img: dataUrl
+    });
+  };
+  reader.readAsDataURL(file);
+
+  imageInput.value = ""; // reset input
+};
 
 function handleCommand(msg) {
   const parts = msg.split(" ");
