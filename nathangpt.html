@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Goated Chatroom V1.2</title>
+<title>Goated Chatroom V1.3</title>
 <style>
 
 
@@ -101,7 +101,7 @@ html, body {
   <a class="rainbowfast">Chat</a>
 </div>
 <br>
-<h1>Goated Chat. V1.2</h1>
+<h1>Goated Chat. V1.3</h1>
 
 <div id="online">Online: 0</div>
 <button id="toggleUsers">Show Users</button>
@@ -133,15 +133,19 @@ let username = prompt("Enter your username:");
 socket.emit("set_username", username);
 
 
-// Map of emote codes to image paths
+// Map of emote codes to image paths (add more here)
 const emoteMap = {
   ":dia:": "img/dia.gif",
-  // Add more emotes here if needed
+  // Example: ":goat:": "img/goat.jpg",
+  // Add more emotes as needed
 };
 
 function emoteReplace(text) {
-  // Replace all emote codes in the text with inline images
-  return text.replace(/(:dia:)/g, (match) => {
+  // Build a regex that matches any emote code in emoteMap
+  const emoteCodes = Object.keys(emoteMap).map(code => code.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  if (emoteCodes.length === 0) return text;
+  const emoteRegex = new RegExp(`(${emoteCodes.join('|')})`, 'g');
+  return text.replace(emoteRegex, (match) => {
     const src = emoteMap[match];
     if (src) {
       return `<img src="${src}" alt="${match}" style="height:1em;vertical-align:middle;">`;
