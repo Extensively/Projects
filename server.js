@@ -45,6 +45,26 @@ io.on("connection", (socket) => {
   });
 
 });
+const imageInput = document.getElementById("imageInput");
+const sendImageBtn = document.getElementById("sendImage");
+
+sendImageBtn.onclick = () => {
+  const file = imageInput.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result; // base64 image string
+    socket.emit("chat_message", {
+      username,
+      type: "image",
+      img: dataUrl
+    });
+  };
+  reader.readAsDataURL(file);
+
+  imageInput.value = ""; // reset input
+};
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

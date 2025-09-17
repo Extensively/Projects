@@ -3,8 +3,52 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Multi-Device Chatroom with GPT</title>
+<title>GOATED CHATROOM</title>
 <style>
+
+  .navbar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    background-color: #333;
+    width: 100vw;
+    margin: 0;
+    padding: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    height: 48px;
+    box-sizing: border-box;
+    border-bottom: 2px solid #222;
+  }
+
+  .navbar a {
+    font-size: 16px;
+    color: white;
+    text-align: center;
+    padding: 12px 18px;
+    text-decoration: none;
+    transition: background 0.2s;
+    border-radius: 4px;
+    margin: 0 2px;
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+
+  .navbar a:hover {
+    background-color: red;
+    color: #fff;
+  }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  box-sizing: border-box;
+}
   body { font-family: sans-serif; background: #f7f7f7; padding: 20px; }
   #chat { border: 1px solid #ccc; background: #fff; padding: 10px; height: 300px; overflow-y: auto; }
   #userlist { border: 1px solid #ccc; background: #eef; padding: 10px; display: none; }
@@ -15,7 +59,7 @@
 </style>
 </head>
 <body>
-<h1>Chatroom</h1>
+<h1>Goated Chat.</h1>
 
 <div id="online">Online: 0</div>
 <button id="toggleUsers">Show Users</button>
@@ -24,6 +68,8 @@
 <div id="chat"></div>
 <input id="input" placeholder="Type a message..." />
 <button id="send">Send</button>
+<input type="file" id="imageInput" accept="image/*" />
+<button id="sendImage">Send Image</button>
 
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script type="module">
@@ -40,13 +86,20 @@ const toggleUsers = document.getElementById("toggleUsers");
 let username = prompt("Enter your username:");
 socket.emit("set_username", username);
 
-function addMessage(sender, text, cls="") {
+function addMessage(sender, text, cls = "", img = null) {
   const div = document.createElement("div");
   div.className = "msg " + cls;
-  div.innerHTML = `<span class="user">${sender}:</span> ${text}`;
+
+  if (img) {
+    div.innerHTML = `<span class="user">${sender}:</span><br><img src="${img}" style="max-width:200px; max-height:200px;">`;
+  } else {
+    div.innerHTML = `<span class="user">${sender}:</span> ${text}`;
+  }
+
   chat.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
 }
+
 
 function updateUsers(users) {
   online.innerText = "Online: " + users.length;
@@ -69,8 +122,13 @@ socket.on("chat_history", (history) => {
 
 socket.on("chat_message", (msg) => {
   const cls = msg.type === "system" ? "system" : (msg.username === "GPT" ? "gpt" : "");
-  addMessage(msg.username, msg.msg, cls);
+  if (msg.type === "image") {
+    addMessage(msg.username, "", cls, msg.img);
+  } else {
+    addMessage(msg.username, msg.msg, cls);
+  }
 });
+
 
 socket.on("update_users", (users) => {
   updateUsers(users);
