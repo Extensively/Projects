@@ -56,9 +56,49 @@ html, body {
   .system { color: gray; font-style: italic; }
   .user { font-weight: bold; }
   .gpt { color: #0077cc; }
+
+     @keyframes rainbow {
+      0% {
+        color: red;
+      }
+      20% {
+        color: yellow;
+      }
+      40% {
+        color: green;
+      }
+      60% {
+        color: blue;
+      }
+      80% {
+        color: violet;
+      }
+	   100% {
+        color: red;
+      }
+    }
+
+    .rainbowslow {
+     animation: rainbow 20s infinite;
+	   animation-duration: infinite;
+ 	   animation-timing-function: linear;
+    }
+	
+    .rainbowfast {
+     animation: rainbow 2s infinite;
+	   animation-duration: infinite;
+ 	   animation-timing-function: linear;
+    }
 </style>
 </head>
 <body>
+<div class="navbar">
+  <a href="index.html">Home</a>
+  <a href="about.html">About</a>
+  <a href="memes.html">Memes</a>
+  <a href="minesweeper.html">Minesweeper</a>
+  <a class="rainbowfast">Chat</a>
+</div>
 <h1>Goated Chat.</h1>
 
 <div id="online">Online: 0</div>
