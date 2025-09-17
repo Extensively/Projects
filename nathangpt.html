@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Goated Chatroom</title>
+<title>Goated Chatroom V1.2</title>
 <style>
 
 
@@ -101,7 +101,7 @@ html, body {
   <a class="rainbowfast">Chat</a>
 </div>
 <br>
-<h1>Goated Chat.</h1>
+<h1>Goated Chat. V1.2</h1>
 
 <div id="online">Online: 0</div>
 <button id="toggleUsers">Show Users</button>
@@ -132,6 +132,24 @@ const toggleUsers = document.getElementById("toggleUsers");
 let username = prompt("Enter your username:");
 socket.emit("set_username", username);
 
+
+// Map of emote codes to image paths
+const emoteMap = {
+  ":dia:": "img/dia.gif",
+  // Add more emotes here if needed
+};
+
+function emoteReplace(text) {
+  // Replace all emote codes in the text with inline images
+  return text.replace(/(:dia:)/g, (match) => {
+    const src = emoteMap[match];
+    if (src) {
+      return `<img src="${src}" alt="${match}" style="height:1em;vertical-align:middle;">`;
+    }
+    return match;
+  });
+}
+
 function addMessage(sender, text, cls = "", img = null) {
   const div = document.createElement("div");
   div.className = "msg " + cls;
@@ -139,7 +157,9 @@ function addMessage(sender, text, cls = "", img = null) {
   if (img) {
     div.innerHTML = `<span class="user">${sender}:</span><br><img src="${img}" style="max-width:200px; max-height:200px;">`;
   } else {
-    div.innerHTML = `<span class="user">${sender}:</span> ${text}`;
+    // Replace emote codes in the text
+    const processedText = emoteReplace(text);
+    div.innerHTML = `<span class="user">${sender}:</span> ${processedText}`;
   }
 
   chat.appendChild(div);
