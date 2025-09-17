@@ -258,6 +258,13 @@ sendImageBtn.onclick = () => {
   imageInput.value = ""; // reset input
 };
 
+function gifemote(text) {
+  const gifMap = {
+    ":dia:": "img/dia.gif",
+  };
+  return gifMap[text] || null;
+}
+
 function handleCommand(msg) {
   const parts = msg.split(" ");
   const command = parts[0].toLowerCase();
