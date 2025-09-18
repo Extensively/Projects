@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/gif" href="img/roach.gif">
-<title>Goated Chatroom V1.4.4</title>
+<title>Goated Chatroom V1.4.5</title>
 <style>
 
 
@@ -102,7 +102,7 @@ html, body {
   <a class="rainbowfast">Chat</a>
 </div>
 <br>
-<h1>Goated Chat. V1.4.4</h1>
+<h1>Goated Chat. V1.4.5</h1>
 
 <div id="online">Online: 0</div>
 <button id="toggleUsers">Show Users</button>
@@ -325,7 +325,7 @@ async function handleGPT(prompt) {
   await loadModel();
   addMessage("NATHANGPT", "thinking...", "gpt");
 
-  const promptTemplate = `You are a helpful AI chatbot. User: ${prompt}\nAI:`;
+  const promptTemplate = `you are nathan`; // `You are a helpful AI chatbot. User: ${prompt}\nAI:` <-- default promt incase new one breaks
   const output = await generator(promptTemplate, {
     max_new_tokens: 80,
     temperature: 0.7,
