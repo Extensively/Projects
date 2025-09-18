@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/gif" href="img/roach.gif">
-<title>Goated Chatroom V1.4.2</title>
+<title>Goated Chatroom V1.4.3</title>
 <style>
 
 
@@ -102,7 +102,7 @@ html, body {
   <a class="rainbowfast">Chat</a>
 </div>
 <br>
-<h1>Goated Chat. V1.4.2</h1>
+<h1>Goated Chat. V1.4.3</h1>
 
 <div id="online">Online: 0</div>
 <button id="toggleUsers">Show Users</button>
@@ -130,7 +130,7 @@ html, body {
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
 const imageInput = document.getElementById("imageInput");
 const sendImageBtn = document.getElementById("sendImage");
-const socket = io("https://projects-p0mx.onrender.com"); // change to your deployed server
+const socket = io("https://projects-p0mx.onrender.com");
 const chat = document.getElementById("chat");
 const input = document.getElementById("input");
 const sendBtn = document.getElementById("send");
@@ -147,7 +147,11 @@ const emoteMap = {
   ":dia:": "img/dia.gif",
   ":brain:": "img/brain.gif",
   "roach": "img/roach.gif",
-  "thumb": "img/thumbs_up.png",
+  "thumb": "img/thumb.png",
+  ":tero:": "img/ptero.gif",
+  ":rex:": "img/trex.gif",
+  ":gun:": "img/gun.gif",
+
   // Add more emotes as needed
 };
 // --- GIF/Emote Panel Logic ---
