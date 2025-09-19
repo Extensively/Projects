@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="icon" type="image/gif" href="img/roach.gif">
@@ -95,17 +94,6 @@ html, body {
 </style>
 </head>
 <body>
-  <div id="login">
-    <h2>Sign in with your organisation account</h2>
-      <div id="g_id_onload"
-          data-client_id="YOUR_GOOGLE_CLIENT_ID"
-          data-auto_prompt="false">
-      </div>
-      <div class="g_id_signin" data-type="standard"></div>
-  </div>
-
-  <div id="chat" style="display:none;">
-    
 <div class="navbar">
   <a href="index.html">Home</a>
   <a href="about.html">About</a>
@@ -139,9 +127,6 @@ html, body {
 <p>Commands: <code>/clear</code> to clear chat.</p>
 <p>Mention <code>@nathangpt</code> to chat with the AI bot
 <p>Want to add an emote to the chat? Submit one at <a class="rainbowfast" href="https://forms.gle/ztgopGiGBEuUkcyy8" target="_blank" >https://forms.gle/ztgopGiGBEuUkcyy8</a></p>
-  </div>
-
-
 <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
 <script type="module">
 import { pipeline } from "https://cdn.jsdelivr.net/npm/@xenova/transformers/dist/transformers.min.js";
@@ -279,8 +264,7 @@ socket.on("chat_history", (history) => {
   });
 });
 
-function initChat(socket, user) {
-  socket.on("chat_message", (msg) => {
+socket.on("chat_message", (msg) => {
   const cls = msg.type === "system" ? "system" : (msg.username === "GPT" ? "gpt" : "");
   if (msg.type === "image") {
     addMessage(msg.username, "", cls, msg.img);
@@ -293,8 +277,6 @@ function initChat(socket, user) {
 socket.on("update_users", (users) => {
   updateUsers(users);
 });
-
-}
 
 // --- Sending messages + GPT handling ---
 sendBtn.onclick = () => {
@@ -396,42 +378,6 @@ function handleCommand(msg) {
   }
 }
 
-</script>
-<script>
-  function handleCredentialResponse(response) {
-    fetch("/auth/verify", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: response.credential })
-    })
-    .then(res => res.json())
-    .then(user => {
-      if (user.authorised) {
-        document.getElementById("login").style.display = "none";
-        document.getElementById("chat").style.display = "block";
-
-        // Pass user info into your existing socket connection
-        window.currentUser = user;
-        const socket = io({ auth: { user } });
-
-        // Call your existing chat init logic here
-        initChat(socket, user);
-      } else {
-        document.body.innerHTML = "<h2 style='text-align:center;margin-top:100px;'>Access denied: not part of organisation</h2>";
-      }
-    });
-  }
-
-  window.onload = function() {
-    google.accounts.id.initialize({
-      client_id: "YOUR_GOOGLE_CLIENT_ID",
-      callback: handleCredentialResponse
-    });
-    google.accounts.id.renderButton(
-      document.querySelector(".g_id_signin"),
-      { theme: "outline", size: "large" }
-    );
-  };
 </script>
 </body>
 </html>
