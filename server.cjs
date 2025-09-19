@@ -19,7 +19,6 @@ app.post("/auth/verify", async (req, res) => {
       audience: "YOUR_GOOGLE_CLIENT_ID"
     });
     const payload = ticket.getPayload();
-
     if (!payload.email.endsWith("@bcc.vic.edu.au")) {
       return res.json({ authorised: false });
     }
