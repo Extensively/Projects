@@ -2,7 +2,7 @@
   "name": "chatroom",
   "version": "1.0.0",
   "type": "module",
-  "main": "server.jcs",
+  "main": "server.cjs",
   "scripts": {
     "start": "node server.cjs"
   },
