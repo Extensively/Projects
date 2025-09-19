@@ -1,106 +1,356 @@
 <!DOCTYPE html>
-<title>Goated Website</title>
-<head><style>
- @keyframes rainbow {
-      0% {
-        color: red;
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Snake</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1220;
+      --grid: #1a1f35;
+      --snake: #4ade80;
+      --snake-head: #22c55e;
+      --food: #f43f5e;
+      --text: #e5e7eb;
+      --accent: #60a5fa;
+    }
+    html, body {
+      height: 100%;
+      margin: 0;
+      background: radial-gradient(1200px 800px at 20% 10%, #131735, var(--bg));
+      color: var(--text);
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    .wrap {
+      min-height: 100%;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    .panel {
+      display: grid;
+      gap: 12px;
+      width: min(92vw, 640px);
+    }
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .title {
+      font-weight: 700;
+      letter-spacing: 0.4px;
+    }
+    .hud {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      opacity: 0.9;
+      font-variant-numeric: tabular-nums;
+    }
+    .btns {
+      display: flex;
+      gap: 8px;
+    }
+    button {
+      background: #111827;
+      color: var(--text);
+      border: 1px solid #374151;
+      padding: 8px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover { border-color: var(--accent); }
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background:
+        linear-gradient(transparent, transparent),
+        repeating-linear-gradient(0deg, var(--grid) 0 1px, transparent 1px 32px),
+        repeating-linear-gradient(90deg, var(--grid) 0 1px, transparent 1px 32px);
+      border-radius: 14px;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.35), 0 0 0 1px #1f2937 inset;
+      aspect-ratio: 1 / 1;
+    }
+    .hint {
+      opacity: 0.8;
+      font-size: 0.92rem;
+    }
+    .center {
+      text-align: center;
+      opacity: 0.9;
+    }
+    .kbd {
+      background: #0b1220;
+      border: 1px solid #25314a;
+      padding: 2px 6px;
+      border-radius: 6px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      font-size: 0.92em;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel">
+      <div class="topbar">
+        <div class="title">Snake</div>
+        <div class="hud">
+          <div>Score: <span id="score">0</span></div>
+          <div>Best: <span id="best">0</span></div>
+        </div>
+        <div class="btns">
+          <button id="pauseBtn" title="Space">Pause</button>
+          <button id="resetBtn">Restart</button>
+        </div>
+      </div>
+      <canvas id="game" width="512" height="512" aria-label="Snake game canvas"></canvas>
+      <div class="center hint">
+        Controls: <span class="kbd">←</span> <span class="kbd">↑</span> <span class="kbd">→</span> <span class="kbd">↓</span> to move, <span class="kbd">Space</span> to pause/resume or restart.
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Game config
+    const CELL = 32;                 // pixels per grid cell (also affects the grid background)
+    const GRID = 16;                 // number of cells per side (16x16)
+    const SPEED_START = 7;           // ticks per second
+    const SPEED_INC_FOOD = 0.25;     // speed increase each food eaten
+    const SNAKE_COLOR = getCss('--snake', '#4ade80');
+    const SNAKE_HEAD = getCss('--snake-head', '#22c55e');
+    const FOOD_COLOR = getCss('--food', '#f43f5e');
+
+    // Canvas setup
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    const scoreEl = document.getElementById('score');
+    const bestEl  = document.getElementById('best');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const resetBtn = document.getElementById('resetBtn');
+
+    // Ensure canvas matches CSS aspect ratio and scales crisply
+    function fitCanvas() {
+      const parentWidth = canvas.clientWidth;
+      const size = Math.round(parentWidth / CELL) * CELL; // align to cell size
+      canvas.width = size;
+      canvas.height = size;
+    }
+    const ro = new ResizeObserver(() => { fitCanvas(); draw(true); });
+    ro.observe(canvas);
+
+    // Game state
+    let snake, dir, nextDir, food, score, best, speed, tickInterval;
+    let acc = 0, last = 0, paused = false, over = false;
+
+    // Utility: get CSS var fallback
+    function getCss(name, fallback) {
+      return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+    }
+
+    // RNG helper
+    function randInt(n) { return Math.floor(Math.random() * n); }
+
+    // Initialize or reset the game
+    function reset() {
+      const start = { x: Math.floor(GRID / 2), y: Math.floor(GRID / 2) };
+      snake = [ {x: start.x, y: start.y}, {x: start.x - 1, y: start.y}, {x: start.x - 2, y: start.y} ];
+      dir = { x: 1, y: 0 };
+      nextDir = { x: 1, y: 0 };
+      score = 0;
+      speed = SPEED_START;
+      food = spawnFood();
+      paused = false;
+      over = false;
+      updateHUD();
+    }
+
+    // Spawn food on a free cell
+    function spawnFood() {
+      let pos;
+      do {
+        pos = { x: randInt(GRID), y: randInt(GRID) };
+      } while (snake && snake.some(s => s.x === pos.x && s.y === pos.y));
+      return pos;
+    }
+
+    // Input handling: prevent reversing directly
+    window.addEventListener('keydown', (e) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        if (over) { reset(); return; }
+        togglePause();
+        return;
       }
-      20% {
-        color: yellow;
+      const k = e.key;
+      if (k === 'ArrowLeft'  && dir.x !== 1)  nextDir = {x:-1,y:0};
+      else if (k === 'ArrowRight' && dir.x !== -1) nextDir = {x:1,y:0};
+      else if (k === 'ArrowUp'   && dir.y !== 1)  nextDir = {x:0,y:-1};
+      else if (k === 'ArrowDown' && dir.y !== -1) nextDir = {x:0,y:1};
+    });
+
+    pauseBtn.addEventListener('click', () => {
+      if (over) { reset(); return; }
+      togglePause();
+    });
+    resetBtn.addEventListener('click', () => reset());
+
+    function togglePause() {
+      paused = !paused;
+      pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    }
+
+    // HUD update
+    function updateHUD() {
+      scoreEl.textContent = String(score);
+      best = Math.max(Number(localStorage.getItem('snake-best') || 0), score);
+      localStorage.setItem('snake-best', String(best));
+      bestEl.textContent = String(best);
+    }
+
+    // Game tick: move snake, handle collisions
+    function step() {
+      if (paused || over) return;
+
+      dir = nextDir; // commit buffered direction
+
+      const head = snake[0];
+      const nx = head.x + dir.x;
+      const ny = head.y + dir.y;
+
+      // Wall collision
+      if (nx < 0 || ny < 0 || nx >= GRID || ny >= GRID) {
+        gameOver();
+        return;
       }
-      40% {
-        color: green;
+
+      // Self collision (exclude tail if it will move unless we eat)
+      const willEat = (nx === food.x && ny === food.y);
+      const bodyToCheck = willEat ? snake : snake.slice(0, -1);
+      if (bodyToCheck.some(s => s.x === nx && s.y === ny)) {
+        gameOver();
+        return;
       }
-      60% {
-        color: blue;
-      }
-      80% {
-        color: violet;
-      }
-	   100% {
-        color: red;
+
+      // Move snake
+      snake.unshift({ x: nx, y: ny });
+
+      if (willEat) {
+        score += 1;
+        speed += SPEED_INC_FOOD;
+        food = spawnFood();
+        updateHUD();
+      } else {
+        snake.pop();
       }
     }
 
-    .rainbowslow {
-     animation: rainbow 20s infinite;
-	   animation-duration: infinite;
- 	   animation-timing-function: linear;
+    function gameOver() {
+      over = true;
+      paused = false;
+      pauseBtn.textContent = 'Pause';
+      updateHUD();
+      draw(true);
     }
-	
-    .rainbowfast {
-     animation: rainbow 2s infinite;
-	   animation-duration: infinite;
- 	   animation-timing-function: linear;
+
+    // Render
+    function draw(showOverlay = false) {
+      const W = canvas.width;
+      const H = canvas.height;
+      const cellPx = Math.floor(W / GRID);
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Food
+      drawCell(food.x, food.y, FOOD_COLOR, cellPx, 6);
+
+      // Snake body
+      for (let i = snake.length - 1; i >= 1; i--) {
+        const alpha = 0.85 - 0.45 * (i / snake.length); // gentle fade
+        drawCell(snake[i].x, snake[i].y, hexWithAlpha(SNAKE_COLOR, alpha), cellPx, 6);
+      }
+      // Head
+      drawCell(snake[0].x, snake[0].y, SNAKE_HEAD, cellPx, 4);
+
+      // Overlay messages
+      if (showOverlay) renderOverlay(W, H, cellPx);
     }
-  .navbar {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    gap: 10px;
-    background-color: #333;
-    width: 100vw;
-    margin: 0;
-    padding: 0;
-    position: fixed;
-    top: 0;
-    left: 0;
-    z-index: 1000;
-    height: 48px;
-    box-sizing: border-box;
-    border-bottom: 2px solid #222;
-  }
 
-  .navbar a {
-    font-size: 16px;
-    color: white;
-    text-align: center;
-    padding: 12px 18px;
-    text-decoration: none;
-    transition: background 0.2s;
-    border-radius: 4px;
-    margin: 0 2px;
-    display: flex;
-    align-items: center;
-    height: 100%;
-  }
+    function drawCell(gx, gy, color, cellPx, inset = 0) {
+      const x = gx * cellPx + inset;
+      const y = gy * cellPx + inset;
+      const size = cellPx - inset * 2;
 
-  .navbar a:hover {
-    background-color: red;
-    color: #fff;
-  }
-body {
-  font-family: Arial, Helvetica, sans-serif;
-}
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100vw;
-  box-sizing: border-box;
-}
-html, body {
-  margin: 0;
-  padding: 0;
-  width: 100vw;
-  box-sizing: border-box;
-}
- .peakbackground {
-   background-image: url('img/sigma.jpg');
- }
-</style>
-<link rel="icon" type="image/gif" href="img/roach.gif">
-</head><body TEXT="#FFFFFF" BGCOLOR="#1A1A1A">
-<div class="navbar">
-  <a href="index.html">Home</a>
-  <a href="about.html">About</a>
-  <a href="memes.html">Memes</a>
-  <a href="minesweeper.html">Minesweeper</a>
-  <a href="nathangpt.html">Chat</a>
-  <a href="" class="rainbowfast">Snake</a>
+      // Slight rounded square look
+      const r = Math.max(4, Math.floor(size * 0.18));
+      ctx.fillStyle = color;
+      roundRect(ctx, x, y, size, size, r);
+      ctx.fill();
+    }
 
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
+    }
 
-</div>
-<br><br><br>
-<h1>Snake</h1>
-<h1>yeh, ill do it later, expect some multiplayer snake thingy idfk.</h1>
+    function hexWithAlpha(hex, alpha = 1) {
+      // Accepts #rrggbb; returns rgba string
+      const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+      if (!m) return hex;
+      const r = parseInt(m[1], 16);
+      const g = parseInt(m[2], 16);
+      const b = parseInt(m[3], 16);
+      return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+    }
+
+    function renderOverlay(W, H) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0,0,0,0.3)';
+      ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = '#e5e7eb';
+      ctx.textAlign = 'center';
+
+      if (over) {
+        ctx.font = '700 32px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx.fillText('Game Over', W / 2, H / 2 - 12);
+        ctx.font = '400 18px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx.fillText('Press Space or click Restart', W / 2, H / 2 + 18);
+      } else if (paused) {
+        ctx.font = '700 28px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx.fillText('Paused', W / 2, H / 2);
+      }
+      ctx.restore();
+    }
+
+    // Main loop with fixed timestep
+    function loop(ts) {
+      const dt = (ts - last) / 1000;
+      last = ts;
+
+      if (!paused && !over) {
+        acc += dt;
+        const stepTime = 1 / speed;
+        while (acc >= stepTime) {
+          step();
+          acc -= stepTime;
+        }
+      }
+      draw(paused || over);
+      requestAnimationFrame(loop);
+    }
+
+    // Start
+    reset();
+    fitCanvas();
+    requestAnimationFrame(loop);
+  </script>
 </body>
+</html>
