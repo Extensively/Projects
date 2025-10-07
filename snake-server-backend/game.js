@@ -1,26 +1,6 @@
-const socket = io("https://snake-text.onrender.com");
-const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
-const gridSize = 20;
-const tileSize = canvas.width / gridSize;
 const scoreboard = document.getElementById("scoreboard");
-
-socket.on("state", state => {
-  // draw game...
-
-  // update scoreboard
-  let scores = Object.values(state.players)
-    .map(p => `<div style="color:${p.color}">${p.color}: ${p.score}</div>`)
-    .join("");
-  scoreboard.innerHTML = scores;
-});
-
-
-document.addEventListener("keydown", e => {
-  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
-    socket.emit("move", e.key);
-  }
-});
+const timerDiv = document.getElementById("timer");
+const leaderboardDiv = document.getElementById("leaderboard");
 
 socket.on("state", state => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -29,12 +9,29 @@ socket.on("state", state => {
   ctx.fillStyle = "red";
   ctx.fillRect(state.food.x * tileSize, state.food.y * tileSize, tileSize, tileSize);
 
-  // Draw players
+  // Draw snakes
   for (let id in state.players) {
     let p = state.players[id];
+    if (!p.alive || p.spectator) continue;
     ctx.fillStyle = p.color;
     p.snake.forEach(seg => {
       ctx.fillRect(seg.x * tileSize, seg.y * tileSize, tileSize, tileSize);
     });
   }
+
+  // Update scoreboard
+  let scores = Object.values(state.players)
+    .map(p => `<div style="color:${p.color}">${p.color}: ${p.score} (Lives: ${p.lives})</div>`)
+    .join("");
+  scoreboard.innerHTML = scores;
+
+  // Update timer
+  const timeLeft = Math.max(0, Math.floor((state.matchEndTime - Date.now()) / 1000));
+  timerDiv.innerText = `Time left: ${timeLeft}s`;
+});
+
+// Show leaderboard after match
+socket.on("matchOver", data => {
+  leaderboardDiv.innerHTML = "<h3>Leaderboard</h3>" +
+    data.leaderboard.map(l => `<div>${l.name}: ${l.score}</div>`).join("");
 });
