@@ -4,6 +4,7 @@ const ctx = canvas.getContext("2d");
 const gridSize = 20;
 const tileSize = canvas.width / gridSize;
 
+
 document.addEventListener("keydown", e => {
   if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
     socket.emit("move", e.key);
