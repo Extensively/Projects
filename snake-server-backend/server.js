@@ -14,10 +14,9 @@ const STARTING_LIVES = 3;
 
 const { Pool } = require("pg");
 
-// Use environment variable for security
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false } // required on Render
 });
 
 // Create table if not exists
