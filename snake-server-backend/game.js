@@ -1,6 +1,8 @@
 const scoreboard = document.getElementById("scoreboard");
 const timerDiv = document.getElementById("timer");
 const leaderboardDiv = document.getElementById("leaderboard");
+const socket = io("https://snake-text.onrender.com");
+
 
 socket.on("state", state => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
