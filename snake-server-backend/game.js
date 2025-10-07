@@ -1,8 +1,18 @@
+const socket = io("https://snake-text.onrender.com"); // update URL
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const gridSize = 20;
+const tileSize = canvas.width / gridSize;
+
 const scoreboard = document.getElementById("scoreboard");
 const timerDiv = document.getElementById("timer");
 const leaderboardDiv = document.getElementById("leaderboard");
-const socket = io("https://snake-text.onrender.com");
 
+document.addEventListener("keydown", e => {
+  if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(e.key)) {
+    socket.emit("move", e.key);
+  }
+});
 
 socket.on("state", state => {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -32,7 +42,6 @@ socket.on("state", state => {
   timerDiv.innerText = `Time left: ${timeLeft}s`;
 });
 
-// Show leaderboard after match
 socket.on("matchOver", data => {
   leaderboardDiv.innerHTML = "<h3>Leaderboard</h3>" +
     data.leaderboard.map(l => `<div>${l.name}: ${l.score}</div>`).join("");
