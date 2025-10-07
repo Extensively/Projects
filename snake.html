@@ -1,8 +1,19 @@
 <!DOCTYPE html>
 <title>Goated Website</title>
 <head><style>
-  canvas { background: #111; display: block; margin: auto; }
-  #hud { margin-top: 10px; }
+body { background: #222; color: white; font-family: system-ui, sans-serif; margin: 0; }
+    .container { max-width: 900px; margin: 0 auto; padding: 16px; }
+    canvas { background: #111; display: block; margin: 16px auto; }
+    #hud { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; align-items: start; }
+    .panel { background: #2b2b2b; padding: 12px; border-radius: 8px; }
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,0.8);
+      color: white; display: none; align-items: center; justify-content: center; flex-direction: column;
+      z-index: 1000; text-align: center; padding: 24px;
+    }
+    .row { display: flex; gap: 8px; align-items: center; }
+    input, button { padding: 6px 8px; border-radius: 6px; border: none; }
+    button { background: #4a8; color: #031; font-weight: 600; cursor: pointer; }
  @keyframes rainbow {
       0% {
         color: red;
@@ -106,12 +117,54 @@ html, body {
 <h1>Snake</h1>
 <h1>yeh, ill do it later, expect some multiplayer snake thingy idfk.</h1>
 <h1>welcome to the prototype</h1>
-  <canvas id="game" width="400" height="400"></canvas>
-  <div id="hud">
-    <div id="timer"></div>
-    <div id="scoreboard"></div>
-    <div id="leaderboard"></div>
+<div class="container">
+    <h1>Multiplayer Snake</h1>
+
+    <div class="row">
+      <canvas id="game" width="500" height="500"></canvas>
+      <div class="panel" style="min-width: 260px;">
+        <div class="row">
+          <label for="username">Username</label>
+          <input id="username" type="text" placeholder="Your name" maxlength="32">
+          <button id="saveUsername">Save</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <label for="boardSize">Board size</label>
+          <input id="boardSize" type="number" min="10" max="60" step="1" value="20" style="width:80px;">
+          <button id="applyBoard">Apply</button>
+        </div>
+        <div class="row" style="margin-top:8px;">
+          <label for="wrapToggle">Wrap edges</label>
+          <input id="wrapToggle" type="checkbox">
+          <button id="applyWrap">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="hud">
+      <div class="panel">
+        <h3>Timer</h3>
+        <div id="timer">—</div>
+      </div>
+      <div class="panel">
+        <h3>Scoreboard</h3>
+        <div id="scoreboard"></div>
+      </div>
+      <div class="panel">
+        <h3>Leaderboard (Top 10)</h3>
+        <div id="leaderboard"></div>
+      </div>
+    </div>
   </div>
+
+  <!-- Overlays -->
+  <div id="respawnPopup" class="overlay">
+    <h2>You died!</h2>
+    <p>Respawning in a moment…</p>
+  </div>
+
+  <div id="endOverlay" class="overlay"></div>
+
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script src="snake-server-backend/game.js"></script>
 </body>

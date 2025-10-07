@@ -2,42 +2,45 @@
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const { Pool } = require("pg");
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
 
-const gridSize = 20;
+// ----- Game config -----
 const MATCH_DURATION = 5 * 60 * 1000; // 5 minutes
-const RESPAWN_DELAY = 3000; // 3 seconds
+const RESPAWN_DELAY = 3000;           // 3 seconds
 const STARTING_LIVES = 3;
+const GRID_MIN = 10;
+const GRID_MAX = 60;
+const GRID_DEFAULT = 20;
 
-const { Pool } = require("pg");
+// State (reset each match where noted)
+let gridSize = GRID_DEFAULT; // configurable per match
+let wrapEdges = false;       // configurable per match
+let players = {};            // reset each match
+let food = randomFood();     // reset each match
+let matchEndTime = Date.now() + MATCH_DURATION;
 
+// ----- Database (persistent across matches) -----
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // required on Render
+  ssl: { rejectUnauthorized: false }
 });
 
-// Create table if not exists
 (async () => {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS leaderboard (
       id SERIAL PRIMARY KEY,
-      name TEXT,
-      score INT,
+      name TEXT NOT NULL,
+      score INT NOT NULL,
       created_at TIMESTAMP DEFAULT NOW()
     )
   `);
 })();
 
-
-
-let players = {};
-let food = randomFood();
-let leaderboard = []; // persists across matches
-let matchEndTime = Date.now() + MATCH_DURATION;
-
+// ----- Helpers -----
 function randomFood() {
   return {
     x: Math.floor(Math.random() * gridSize),
@@ -45,45 +48,50 @@ function randomFood() {
   };
 }
 
-function startNewMatch() {
-  players = {};
-  food = randomFood();
-  matchEndTime = Date.now() + MATCH_DURATION;
-  io.emit("newMatch", { endTime: matchEndTime, leaderboard });
-}
-
 function respawnPlayer(id) {
-  if (!players[id]) return;
-  players[id].snake = [{
+  const p = players[id];
+  if (!p) return;
+  p.snake = [{
     x: Math.floor(Math.random() * gridSize),
     y: Math.floor(Math.random() * gridSize)
   }];
-  players[id].direction = "ArrowRight";
-  players[id].alive = true;
+  p.direction = "ArrowRight";
+  p.alive = true;
 }
 
 function handleDeath(id) {
-  let player = players[id];
-  if (!player) return;
+  const p = players[id];
+  if (!p) return;
 
-  player.lives--;
-  player.alive = false;
+  p.lives--;
+  p.alive = false;
 
-  if (player.lives > 0) {
-    // Respawn after delay
+  if (p.lives > 0) {
     setTimeout(() => {
       if (players[id]) respawnPlayer(id);
     }, RESPAWN_DELAY);
   } else {
-    // Out of lives → spectator
-    player.spectator = true;
+    p.spectator = true;
   }
 }
 
-io.on("connection", socket => {
-  console.log("Player connected:", socket.id);
+function startNewMatch() {
+  players = {};
+  food = randomFood();
+  matchEndTime = Date.now() + MATCH_DURATION;
+  io.emit("newMatch", {
+    endTime: matchEndTime,
+    leaderboardTop: [], // will be refreshed when queried
+    gridSize,
+    wrapEdges
+  });
+}
 
+// ----- Socket handlers -----
+io.on("connection", socket => {
+  // Initialize player with defaults
   players[socket.id] = {
+    name: "Anonymous",
     snake: [{ x: 5, y: 5 }],
     direction: "ArrowRight",
     color: "#" + Math.floor(Math.random() * 16777215).toString(16),
@@ -93,86 +101,133 @@ io.on("connection", socket => {
     spectator: false
   };
 
+  // Username set (persisted on client via localStorage)
+  socket.on("setUsername", name => {
+    if (typeof name === "string" && name.trim().length > 0) {
+      players[socket.id].name = name.trim().slice(0, 32);
+    }
+  });
+
+  // Prevent reversing direction (180° turns)
   socket.on("move", dir => {
-    if (["ArrowUp","ArrowDown","ArrowLeft","ArrowRight"].includes(dir)) {
+    const valid = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
+    if (!valid.includes(dir) || !players[socket.id]) return;
+    const current = players[socket.id].direction;
+    const opposite = {
+      ArrowUp: "ArrowDown",
+      ArrowDown: "ArrowUp",
+      ArrowLeft: "ArrowRight",
+      ArrowRight: "ArrowLeft"
+    };
+    if (dir !== opposite[current]) {
       players[socket.id].direction = dir;
     }
+  });
+
+  // Optional: allow clients to suggest board size for next match
+  socket.on("setBoardSize", size => {
+    if (typeof size !== "number") return;
+    const s = Math.max(GRID_MIN, Math.min(GRID_MAX, Math.floor(size)));
+    // You could add authorization here; for now, accept the latest request
+    gridSize = s;
+    food = randomFood();
+    io.emit("configUpdated", { gridSize, wrapEdges });
+  });
+
+  // Optional: toggle wrapping for next match
+  socket.on("setWrapping", enabled => {
+    wrapEdges = !!enabled;
+    io.emit("configUpdated", { gridSize, wrapEdges });
   });
 
   socket.on("disconnect", () => {
     delete players[socket.id];
   });
+
+  // Send initial config to this client
+  socket.emit("configUpdated", { gridSize, wrapEdges });
 });
 
-// Game loop
+// ----- Main game loop -----
 setInterval(async () => {
-  // Check match timer
+  // Match end check
   if (Date.now() >= matchEndTime) {
-    // Push scores to leaderboard
-    for (let id in players) {
-      let p = players[id];
-      leaderboard.push({ name: p.color, score: p.score });
+    // Persist scores
+    try {
+      const insertValues = [];
+      for (const id in players) {
+        const p = players[id];
+        insertValues.push(pool.query(
+          "INSERT INTO leaderboard (name, score) VALUES ($1, $2)",
+          [p.name || "Anonymous", p.score | 0]
+        ));
+      }
+      await Promise.all(insertValues);
+
+      // Fetch top 10 from DB
+      const top = await pool.query(
+        "SELECT name, score FROM leaderboard ORDER BY score DESC, created_at ASC LIMIT 10"
+      );
+
+      io.emit("matchOver", {
+        leaderboardTop: top.rows,
+        gridSize,
+        wrapEdges
+      });
+
+      // Start a fresh match (keeps current gridSize and wrapEdges)
+      startNewMatch();
+      return;
+    } catch (err) {
+      console.error("DB error on match end:", err);
+      // Even if DB fails, still start a new match
+      io.emit("matchOver", { leaderboardTop: [], gridSize, wrapEdges });
+      startNewMatch();
+      return;
     }
-    leaderboard.sort((a, b) => b.score - a.score);
-
-    io.emit("matchOver", { leaderboard });
-    if (Date.now() >= matchEndTime) {
-  for (let id in players) {
-    let p = players[id];
-    await pool.query(
-      "INSERT INTO leaderboard (name, score) VALUES ($1, $2)",
-      [p.color, p.score]
-    );
   }
 
-  // Fetch top 10 scores
-  const result = await pool.query(
-    "SELECT name, score FROM leaderboard ORDER BY score DESC LIMIT 10"
-  );
+  // Update players
+  for (const id in players) {
+    const p = players[id];
+    if (!p || !p.alive || p.spectator) continue;
 
-  io.emit("matchOver", { leaderboard: result.rows });
-  startNewMatch();
-  return;
-}
-
-    startNewMatch();
-    return;
-  }
-
-  // Update each player
-  for (let id in players) {
-    let player = players[id];
-    if (!player || !player.alive || player.spectator) continue;
-
-    let head = { ...player.snake[0] };
+    let head = { ...p.snake[0] };
 
     // Move head
-    if (player.direction === "ArrowUp") head.y--;
-    if (player.direction === "ArrowDown") head.y++;
-    if (player.direction === "ArrowLeft") head.x--;
-    if (player.direction === "ArrowRight") head.x++;
+    if (p.direction === "ArrowUp") head.y--;
+    if (p.direction === "ArrowDown") head.y++;
+    if (p.direction === "ArrowLeft") head.x--;
+    if (p.direction === "ArrowRight") head.x++;
 
-    // --- Collision checks ---
-    // Wall
-    if (head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize) {
+    // Wall handling: wrap or die
+    if (wrapEdges) {
+      if (head.x < 0) head.x = gridSize - 1;
+      if (head.x >= gridSize) head.x = 0;
+      if (head.y < 0) head.y = gridSize - 1;
+      if (head.y >= gridSize) head.y = 0;
+    } else {
+      if (head.x < 0 || head.x >= gridSize || head.y < 0 || head.y >= gridSize) {
+        handleDeath(id);
+        continue;
+      }
+    }
+
+    // Self collision
+    if (p.snake.some(seg => seg.x === head.x && seg.y === head.y)) {
       handleDeath(id);
       continue;
     }
 
-    // Self
-    if (player.snake.some(seg => seg.x === head.x && seg.y === head.y)) {
-      handleDeath(id);
-      continue;
-    }
-
-    // Other players
+    // Other players collision
     let collided = false;
-    for (let otherId in players) {
-      if (otherId !== id && players[otherId].alive) {
-        if (players[otherId].snake.some(seg => seg.x === head.x && seg.y === head.y)) {
-          collided = true;
-          break;
-        }
+    for (const otherId in players) {
+      if (otherId === id) continue;
+      const o = players[otherId];
+      if (!o || !o.alive) continue;
+      if (o.snake.some(seg => seg.x === head.x && seg.y === head.y)) {
+        collided = true;
+        break;
       }
     }
     if (collided) {
@@ -180,19 +235,26 @@ setInterval(async () => {
       continue;
     }
 
-    // --- Update snake ---
-    player.snake.unshift(head);
+    // Apply movement
+    p.snake.unshift(head);
 
     // Food check
     if (head.x === food.x && head.y === food.y) {
-      player.score++;
+      p.score++;
       food = randomFood();
     } else {
-      player.snake.pop();
+      p.snake.pop();
     }
   }
 
-  io.emit("state", { players, food, matchEndTime });
+  // Broadcast state
+  io.emit("state", {
+    players,
+    food,
+    matchEndTime,
+    gridSize,
+    wrapEdges
+  });
 }, 200);
 
 server.listen(3000, () => console.log("Server running on port 3000"));
