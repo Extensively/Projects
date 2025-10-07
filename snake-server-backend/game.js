@@ -3,6 +3,17 @@ const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const gridSize = 20;
 const tileSize = canvas.width / gridSize;
+const scoreboard = document.getElementById("scoreboard");
+
+socket.on("state", state => {
+  // draw game...
+
+  // update scoreboard
+  let scores = Object.values(state.players)
+    .map(p => `<div style="color:${p.color}">${p.color}: ${p.score}</div>`)
+    .join("");
+  scoreboard.innerHTML = scores;
+});
 
 
 document.addEventListener("keydown", e => {
