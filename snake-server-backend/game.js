@@ -1,4 +1,4 @@
-const socket = io("https://your-render-app.onrender.com");
+const socket = io("https://snake-text.onrender.com");
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 const gridSize = 20;
