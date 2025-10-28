@@ -5,7 +5,13 @@ const gravity = 0.5;
 let keys = {};
 let cameraOffsetX = 0;
 
-document.addEventListener("keydown", e => keys[e.code] = true);
+document.addEventListener("keydown", e => {
+  keys[e.code] = true;
+  if (e.code === "KeyQ") {
+    weaponIndex = (weaponIndex + 1) % weaponKeys.length;
+    equippedGun = weaponKeys[weaponIndex];
+  }
+});
 document.addEventListener("keyup", e => keys[e.code] = false);
 document.addEventListener("click", shootBullet);
 
@@ -41,14 +47,16 @@ class Platform {
 }
 
 class Enemy {
-  constructor(x, y, type) {
+  constructor(x, y, type, behavior = "patrol") {
     this.x = x; this.y = y;
     this.w = 30; this.h = 30;
     this.type = type;
+    this.behavior = behavior;
     this.color = type === "circle" ? "#f00" : "#ff0";
-    this.vx = type === "circle" ? -1.5 : 1.5;
+    this.vx = behavior === "patrol" ? (Math.random() < 0.5 ? -1.5 : 1.5) : 0;
     this.vy = 0;
     this.hp = 3;
+    this.jumpCooldown = 0;
   }
   draw() {
     ctx.fillStyle = this.color;
@@ -66,8 +74,14 @@ class Enemy {
     }
   }
   update() {
-    this.x += this.vx;
+    if (this.behavior === "jump" && this.jumpCooldown <= 0) {
+      this.vy = -8;
+      this.jumpCooldown = 120;
+    }
+    if (this.jumpCooldown > 0) this.jumpCooldown--;
+
     this.vy += gravity;
+    this.x += this.vx;
     this.y += this.vy;
   }
 }
@@ -93,6 +107,21 @@ let enemies = [];
 let lootDrops = [];
 let bullets = [];
 
+let techUpgrades = {
+  doubleJump: false,
+  dash: false,
+  magnet: false
+};
+
+const weapons = {
+  basic: { speed: 8, color: "#fff" },
+  laser: { speed: 12, color: "#0ff" },
+  spread: { speed: 6, color: "#f0f" }
+};
+const weaponKeys = Object.keys(weapons);
+let weaponIndex = 0;
+let equippedGun = weaponKeys[weaponIndex];
+
 function generatePlatforms(startX = 0) {
   const platforms = [];
   for (let i = 0; i < 10; i++) {
@@ -106,21 +135,26 @@ function generatePlatforms(startX = 0) {
 function spawnEnemies(platforms) {
   for (let plat of platforms) {
     if (Math.random() < 0.3) {
-      enemies.push(new Enemy(plat.x + 20, plat.y - 30, Math.random() < 0.5 ? "circle" : "triangle"));
+      const type = Math.random() < 0.5 ? "circle" : "triangle";
+      const behavior = Math.random() < 0.5 ? "patrol" : "jump";
+      enemies.push(new Enemy(plat.x + 20, plat.y - 30, type, behavior));
     }
   }
 }
 
 function shootBullet() {
+  const gun = weapons[equippedGun];
   bullets.push({
     x: player.x + player.w / 2,
     y: player.y + player.h / 2,
-    vx: 8,
+    vx: gun.speed,
     w: 10,
     h: 4,
-    color: "#fff"
+    color: gun.color
   });
 }
+
+let jumpCount = 0;
 
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -129,9 +163,10 @@ function gameLoop() {
   player.vx = 0;
   if (keys["ArrowLeft"] || keys["KeyA"]) player.vx = -5;
   if (keys["ArrowRight"] || keys["KeyD"]) player.vx = 5;
-  if ((keys["Space"] || keys["KeyW"]) && player.onGround) {
+  if ((keys["Space"] || keys["KeyW"]) && jumpCount < (techUpgrades.doubleJump ? 2 : 1)) {
     player.vy = -12;
     player.onGround = false;
+    jumpCount++;
   }
 
   player.update();
@@ -155,6 +190,7 @@ function gameLoop() {
     plat.draw();
   }
 
+  if (player.onGround) jumpCount = 0;
   player.draw();
 
   // Expand terrain
@@ -182,25 +218,4 @@ function gameLoop() {
     }
 
     if (e.hp <= 0) {
-      const type = Math.random() < 0.5 ? "tech" : "gun";
-      lootDrops.push(new Loot(e.x, e.y, type));
-      enemies.splice(i, 1);
-    }
-  }
-
-  // Bullets
-  for (let b of bullets) {
-    b.x += b.vx;
-    ctx.fillStyle = b.color;
-    ctx.fillRect(b.x - cameraOffsetX, b.y, b.w, b.h);
-  }
-
-  // Loot
-  for (let loot of lootDrops) {
-    loot.draw();
-  }
-
-  requestAnimationFrame(gameLoop);
-}
-
-gameLoop();
+      const type = Math.random() < 0.
