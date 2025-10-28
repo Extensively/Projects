@@ -200,21 +200,82 @@ function spawnEnemiesOn(platformArray) {
     }
   }
 }
+// ===== Spawn + reset fixes (replace existing functions in game.js) =====
 
-// ===== Reset / seed application =====
+// Helper: compute current terrain end from platforms array
+function computeTerrainEnd() {
+  let maxX = 0;
+  for (let p of platforms) {
+    maxX = Math.max(maxX, p.x + p.w);
+  }
+  return maxX;
+}
+
+// Spawn enemies on a set of platforms but bias them to be visible if spawning at start
+function spawnEnemiesOn(platformArray, preferVisible = false) {
+  if (!toggleSpawn.checked) return;
+  for (let plat of platformArray) {
+    if (plat === floor) continue;
+    if (rng() < 0.45) {
+      const type = rng() < 0.5 ? "circle" : "triangle";
+      const r = rng();
+      const behavior = r < 0.55 ? "patrol" : (r < 0.8 ? "jump" : "shooter");
+
+      // Pick an X that stays well on the platform
+      const minX = plat.x + 12;
+      const maxX = Math.max(minX + 8, plat.x + plat.w - 40);
+      let ex = minX + Math.floor(rng() * Math.max(1, (maxX - minX)));
+
+      // If this is the initial spawn and we prefer visible, clamp X near player start region
+      if (preferVisible) {
+        const visibleMin = Math.max(0, player.x - 80);
+        const visibleMax = player.x + canvas.width + 80;
+        // clamp ex into visible range when possible
+        if (ex < visibleMin) ex = Math.min(maxX, visibleMin + Math.floor(rng() * Math.min(200, visibleMax - visibleMin)));
+        if (ex > visibleMax) ex = Math.max(minX, visibleMax - Math.floor(rng() * Math.min(200, visibleMax - visibleMin)));
+      }
+
+      const e = new Enemy(ex, plat.y - 30, type, behavior);
+      enemies.push(e);
+    }
+  }
+}
+
+// Deterministic reset that guarantees visible initial platforms and enemy spawns
 function resetWorld() {
+  // reset RNG state for deterministic generation
+  rng = mulberry32(seed);
+
   platforms = [floor];
-  terrainEndX = 800;
-  const initial = generatePlatforms(0);
+
+  // Create initial platforms starting at x=0 that are reachable/visible
+  const initialStartX = 0;
+  const initial = generatePlatforms(initialStartX);
   platforms.push(...initial);
+
+  // set terrainEndX consistently from platform extents
+  terrainEndX = computeTerrainEnd();
+  if (terrainEndX < canvas.width) terrainEndX = canvas.width + 200;
+
+  // clear entities
   enemies = [];
   lootDrops = [];
   bullets = [];
   enemyBullets = [];
-  spawnEnemiesOn(initial);
-  player.x = 100; player.y = 100; player.vx = 0; player.vy = 0;
+
+  // spawn enemies on the initial platforms and prefer them to be visible
+  spawnEnemiesOn(initial, true);
+
+  // place player in visible start area
+  player.x = 100;
+  player.y = 100;
+  player.vx = 0;
+  player.vy = 0;
+  player.onGround = false;
+  jumpCount = 0;
 }
 
+// Immediately initialize using the current seed
 reseed(seed);
 resetWorld();
 
@@ -395,7 +456,7 @@ function gameLoop() {
 
 function drawHUD() {
   ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillRect(8, 8, 260, 80);
+  ctx.fillRect(8, 8, 320, 96);
   ctx.fillStyle = "#fff";
   ctx.font = "14px system-ui, Arial";
   ctx.fillText("Weapon: " + equippedGun, 16, 28);
@@ -406,7 +467,10 @@ function drawHUD() {
   ctx.fillText("Techs: " + active, 16, 66);
   ctx.fillStyle = "#ccc";
   ctx.fillText("Seed: " + seed, 16, 86);
+  ctx.fillStyle = "#ffd";
+  ctx.fillText("Enemies: " + enemies.length, 180, 28); // debug counter
 }
+
 
 // world reset helper (used by regen)
 function resetWorldAndKeepSeed() {
