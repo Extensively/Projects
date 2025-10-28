@@ -50,14 +50,14 @@ function generatePlatforms(startX = 0) {
 }
 
 const player = new Entity(100, 100, 30, 30, "#0f0");
-const floor = new Platform(0, canvas.height - 40, canvas.width, 40);
+const floor = new Platform(-10000, canvas.height - 40, 20000, 40); // wide floor
 let platforms = [floor, ...generatePlatforms()];
-let terrainEndX = platforms.reduce((max, p) => Math.max(max, p.x + p.w), 0);
+let terrainEndX = 800;
 
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Player movement
+  // Movement
   player.vx = 0;
   if (keys["ArrowLeft"] || keys["KeyA"]) player.vx = -5;
   if (keys["ArrowRight"] || keys["KeyD"]) player.vx = 5;
@@ -74,21 +74,25 @@ function gameLoop() {
   // Collision
   player.onGround = false;
   for (let plat of platforms) {
-    if (player.x < plat.x + plat.w &&
-        player.x + player.w > plat.x &&
-        player.y + player.h < plat.y + 10 &&
-        player.y + player.h + player.vy >= plat.y) {
+    const isColliding =
+      player.x < plat.x + plat.w &&
+      player.x + player.w > plat.x &&
+      player.y + player.h <= plat.y + 10 &&
+      player.y + player.h + player.vy >= plat.y;
+
+    if (isColliding) {
       player.vy = 0;
       player.y = plat.y - player.h;
       player.onGround = true;
     }
+
     plat.draw();
   }
 
   player.draw();
 
-  // Generate more terrain if needed
-  if (player.x + canvas.width > terrainEndX - 200) {
+  // Expand terrain
+  if (player.x + canvas.width > terrainEndX - 400) {
     const newPlatforms = generatePlatforms(terrainEndX);
     platforms.push(...newPlatforms);
     terrainEndX += 800;
