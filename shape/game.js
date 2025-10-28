@@ -7,6 +7,7 @@ let cameraOffsetX = 0;
 
 document.addEventListener("keydown", e => keys[e.code] = true);
 document.addEventListener("keyup", e => keys[e.code] = false);
+document.addEventListener("click", shootBullet);
 
 class Entity {
   constructor(x, y, w, h, color) {
@@ -39,6 +40,59 @@ class Platform {
   }
 }
 
+class Enemy {
+  constructor(x, y, type) {
+    this.x = x; this.y = y;
+    this.w = 30; this.h = 30;
+    this.type = type;
+    this.color = type === "circle" ? "#f00" : "#ff0";
+    this.vx = type === "circle" ? -1.5 : 1.5;
+    this.vy = 0;
+    this.hp = 3;
+  }
+  draw() {
+    ctx.fillStyle = this.color;
+    if (this.type === "circle") {
+      ctx.beginPath();
+      ctx.arc(this.x - cameraOffsetX + this.w/2, this.y + this.h/2, this.w/2, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.beginPath();
+      ctx.moveTo(this.x - cameraOffsetX, this.y + this.h);
+      ctx.lineTo(this.x - cameraOffsetX + this.w / 2, this.y);
+      ctx.lineTo(this.x - cameraOffsetX + this.w, this.y + this.h);
+      ctx.closePath();
+      ctx.fill();
+    }
+  }
+  update() {
+    this.x += this.vx;
+    this.vy += gravity;
+    this.y += this.vy;
+  }
+}
+
+class Loot {
+  constructor(x, y, type) {
+    this.x = x; this.y = y;
+    this.w = 20; this.h = 20;
+    this.type = type;
+    this.color = type === "tech" ? "#0ff" : "#f0f";
+  }
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h);
+  }
+}
+
+const player = new Entity(100, 100, 30, 30, "#0f0");
+const floor = new Platform(-10000, canvas.height - 40, 20000, 40);
+let platforms = [floor, ...generatePlatforms()];
+let terrainEndX = 800;
+let enemies = [];
+let lootDrops = [];
+let bullets = [];
+
 function generatePlatforms(startX = 0) {
   const platforms = [];
   for (let i = 0; i < 10; i++) {
@@ -49,10 +103,24 @@ function generatePlatforms(startX = 0) {
   return platforms;
 }
 
-const player = new Entity(100, 100, 30, 30, "#0f0");
-const floor = new Platform(-10000, canvas.height - 40, 20000, 40); // wide floor
-let platforms = [floor, ...generatePlatforms()];
-let terrainEndX = 800;
+function spawnEnemies(platforms) {
+  for (let plat of platforms) {
+    if (Math.random() < 0.3) {
+      enemies.push(new Enemy(plat.x + 20, plat.y - 30, Math.random() < 0.5 ? "circle" : "triangle"));
+    }
+  }
+}
+
+function shootBullet() {
+  bullets.push({
+    x: player.x + player.w / 2,
+    y: player.y + player.h / 2,
+    vx: 8,
+    w: 10,
+    h: 4,
+    color: "#fff"
+  });
+}
 
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -67,8 +135,6 @@ function gameLoop() {
   }
 
   player.update();
-
-  // Camera follows player
   cameraOffsetX = player.x - canvas.width / 2;
 
   // Collision
@@ -95,7 +161,43 @@ function gameLoop() {
   if (player.x + canvas.width > terrainEndX - 400) {
     const newPlatforms = generatePlatforms(terrainEndX);
     platforms.push(...newPlatforms);
+    spawnEnemies(newPlatforms);
     terrainEndX += 800;
+  }
+
+  // Enemies
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    e.update();
+    e.draw();
+
+    for (let b of bullets) {
+      if (b.x < e.x + e.w &&
+          b.x + b.w > e.x &&
+          b.y < e.y + e.h &&
+          b.y + b.h > e.y) {
+        e.hp -= 1;
+        b.vx = 0;
+      }
+    }
+
+    if (e.hp <= 0) {
+      const type = Math.random() < 0.5 ? "tech" : "gun";
+      lootDrops.push(new Loot(e.x, e.y, type));
+      enemies.splice(i, 1);
+    }
+  }
+
+  // Bullets
+  for (let b of bullets) {
+    b.x += b.vx;
+    ctx.fillStyle = b.color;
+    ctx.fillRect(b.x - cameraOffsetX, b.y, b.w, b.h);
+  }
+
+  // Loot
+  for (let loot of lootDrops) {
+    loot.draw();
   }
 
   requestAnimationFrame(gameLoop);
