@@ -101,6 +101,8 @@ html, body {
   <a href="minesweeper.html">Minesweeper</a>
   <a class="rainbowfast">Chat</a>
   <a href="snake.html">Snake</a>
+  <a href="shape/shape.html">Shapez</a>
+
 
 </div>
 <br>
@@ -336,7 +338,7 @@ async function handleGPT(prompt) {
   });
 
   const reply = output[0].generated_text.replace(promptTemplate, "").trim();
-  socket.emit("chat_message", { username: "NATHANGPT", msg: reply });
+  socket.emit("chat_message", { username: "[NATHANGPT]", msg: reply });
 }
 sendImageBtn.onclick = () => {
   const file = imageInput.files[0];
