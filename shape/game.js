@@ -1,15 +1,54 @@
+/* shape-platformer — seeded terrain + fixed enemies + settings sidebar */
+
+// Canvas & basic
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
-
 const gravity = 0.5;
 let keys = {};
 let cameraOffsetX = 0;
 
+// Settings controls
+const seedDisplay = document.getElementById("seedDisplay");
+const toggleSpawn = document.getElementById("toggleSpawn");
+const toggleLoot = document.getElementById("toggleLoot");
+const toggleBtn = document.getElementById("toggleSettings");
+const settingsBody = document.getElementById("settingsBody");
+const regenSeedBtn = document.getElementById("regenSeed");
+
+toggleBtn.addEventListener("click", () => {
+  const collapsed = settingsBody.classList.toggle("collapsed");
+  toggleBtn.textContent = collapsed ? "Settings ▸" : "Settings ◂";
+});
+
+// ===== Seeded RNG (mulberry32) =====
+let seed = Math.floor(Math.random() * 1e9);
+seedDisplay.textContent = seed;
+function mulberry32(a) {
+  return function() {
+    a |= 0;
+    a = a + 0x6D2B79F5 | 0;
+    let t = Math.imul(a ^ a >>> 15, 1 | a);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+}
+let rng = mulberry32(seed);
+function reseed(newSeed) {
+  seed = newSeed | 0;
+  rng = mulberry32(seed);
+  seedDisplay.textContent = seed;
+}
+regenSeedBtn.addEventListener("click", () => {
+  reseed(Math.floor(Math.random() * 1e9));
+  resetWorld();
+});
+
+// Input
 document.addEventListener("keydown", e => keys[e.code] = true);
 document.addEventListener("keyup", e => keys[e.code] = false);
-document.addEventListener("click", shootBullet);
+canvas.addEventListener("click", shootBullet);
 
-// ======= Entity, Platform, Enemy, Loot =======
+// ===== Entities =====
 class Entity {
   constructor(x, y, w, h, color) {
     this.x = x; this.y = y;
@@ -42,19 +81,18 @@ class Platform {
 }
 
 class Enemy {
-  // Added behavior param: "patrol", "jump", "shooter"
   constructor(x, y, type, behavior = "patrol") {
     this.x = x; this.y = y;
     this.w = 30; this.h = 30;
     this.type = type;
     this.behavior = behavior;
     this.color = type === "circle" ? "#e55" : "#ffdf55";
-    // patrol moves left/right; shooter stands and fires periodically
-    this.vx = behavior === "patrol" ? (Math.random() < 0.5 ? -1.5 : 1.5) : 0;
+    this.vx = behavior === "patrol" ? (rng() < 0.5 ? -1.5 : 1.5) : 0;
     this.vy = 0;
     this.hp = 3;
-    this.jumpCooldown = 0;
-    this.shootCooldown = Math.floor(Math.random() * 120) + 60;
+    this.jumpCooldown = Math.floor(rng() * 60);
+    this.shootCooldown = Math.floor(rng() * 120) + 60;
+    this.onGround = false;
   }
   draw() {
     ctx.fillStyle = this.color;
@@ -72,15 +110,13 @@ class Enemy {
     }
   }
   update() {
-    // Behavior: patrol (walk and reverse on platform edges), jump (periodic jump), shooter (fires)
     if (this.behavior === "jump") {
       if (this.jumpCooldown <= 0 && this.onGround) {
         this.vy = -8;
-        this.jumpCooldown = 90 + Math.floor(Math.random() * 60);
+        this.jumpCooldown = 90 + Math.floor(rng() * 60);
       }
       if (this.jumpCooldown > 0) this.jumpCooldown--;
     }
-
     if (this.behavior === "shooter") {
       if (this.shootCooldown <= 0) {
         enemyBullets.push({
@@ -89,13 +125,9 @@ class Enemy {
           vx: (player.x < this.x) ? -4 : 4,
           w: 6, h: 6, color: "#f80"
         });
-        this.shootCooldown = 120 + Math.floor(Math.random() * 90);
-      } else {
-        this.shootCooldown--;
-      }
+        this.shootCooldown = 120 + Math.floor(rng() * 90);
+      } else this.shootCooldown--;
     }
-
-    // simple gravity and movement
     this.vy += gravity;
     this.x += this.vx;
     this.y += this.vy;
@@ -106,7 +138,7 @@ class Loot {
   constructor(x, y, type) {
     this.x = x; this.y = y;
     this.w = 20; this.h = 20;
-    this.type = type; // 'tech' or 'gun'
+    this.type = type;
     this.color = type === "tech" ? "#0ff" : "#f0f";
   }
   draw() {
@@ -115,17 +147,17 @@ class Loot {
   }
 }
 
-// ======= Player, floor, world =======
+// ===== World state =====
 const player = new Entity(100, 100, 30, 30, "#0f0");
-const floor = new Platform(-10000, canvas.height - 40, 20000, 40); // wide floor
-let platforms = [floor, ...generatePlatforms()];
-let terrainEndX = 800;
+const floor = new Platform(-10000, canvas.height - 40, 20000, 40);
+let platforms = [];
+let terrainEndX = 0;
 let enemies = [];
 let lootDrops = [];
 let bullets = [];
 let enemyBullets = [];
 
-// ======= Weapons & Tech upgrades (editable) =======
+// Weapons & tech (editable)
 const weapons = {
   basic: { speed: 8, color: "#fff", damage: 1 },
   laser: { speed: 12, color: "#0ff", damage: 2 },
@@ -140,74 +172,87 @@ let techUpgrades = {
   dash: false,
   magnet: false
 };
-
-// jump tracking for double jump
 let jumpCount = 0;
 
-// ======= Terrain generation & enemy spawning =======
+// ===== Generation (seeded) =====
 function generatePlatforms(startX = 0) {
   const ret = [];
-  for (let i = 0; i < 10; i++) {
-    const x = startX + i * 80 + Math.random() * 40;
-    const y = 420 - Math.random() * 200;
-    ret.push(new Platform(x, y, 80, 20));
+  const count = 10;
+  for (let i = 0; i < count; i++) {
+    const x = startX + i * 96 + Math.floor(rng() * 48); // more spacing
+    const y = 380 + Math.floor(rng() * 180); // placed lower so enemies visible on screen
+    ret.push(new Platform(x, y, 88, 18));
   }
   return ret;
 }
 
 function spawnEnemiesOn(platformArray) {
+  if (!toggleSpawn.checked) return;
   for (let plat of platformArray) {
-    if (Math.random() < 0.35) {
-      const type = Math.random() < 0.5 ? "circle" : "triangle";
-      const r = Math.random();
+    // don't spawn on the floor
+    if (plat === floor) continue;
+    if (rng() < 0.45) {
+      const type = rng() < 0.5 ? "circle" : "triangle";
+      const r = rng();
       const behavior = r < 0.55 ? "patrol" : (r < 0.8 ? "jump" : "shooter");
-      const e = new Enemy(plat.x + 20 + Math.random() * 20, plat.y - 30, type, behavior);
+      const e = new Enemy(plat.x + 16 + Math.floor(rng() * (plat.w - 32)), plat.y - 30, type, behavior);
       enemies.push(e);
     }
   }
 }
 
-// spawn initial enemies on initial platforms (excluding the floor)
-spawnEnemiesOn(platforms.filter(p => p !== floor));
+// ===== Reset / seed application =====
+function resetWorld() {
+  platforms = [floor];
+  terrainEndX = 800;
+  const initial = generatePlatforms(0);
+  platforms.push(...initial);
+  enemies = [];
+  lootDrops = [];
+  bullets = [];
+  enemyBullets = [];
+  spawnEnemiesOn(initial);
+  player.x = 100; player.y = 100; player.vx = 0; player.vy = 0;
+}
 
-// ======= Shooting =======
+reseed(seed);
+resetWorld();
+
+// ===== Shooting & weapon switching =====
 function shootBullet() {
   const gun = weapons[equippedGun];
   if (!gun) return;
-  // basic forward bullet; spread creates three bullets
   const originX = player.x + player.w / 2;
   const originY = player.y + player.h / 2;
   if (gun.spread) {
     bullets.push({ x: originX, y: originY, vx: gun.speed, w: 10, h: 4, color: gun.color, damage: gun.damage });
-    bullets.push({ x: originX, y: originY, vx: gun.speed * 0.9, vy: -1.6, w: 10, h: 4, color: gun.color, damage: gun.damage });
-    bullets.push({ x: originX, y: originY, vx: gun.speed * 0.9, vy: 1.6, w: 10, h: 4, color: gun.color, damage: gun.damage });
+    bullets.push({ x: originX, y: originY, vx: gun.speed * 0.88, vy: -1.8, w: 10, h: 4, color: gun.color, damage: gun.damage });
+    bullets.push({ x: originX, y: originY, vx: gun.speed * 0.88, vy: 1.8, w: 10, h: 4, color: gun.color, damage: gun.damage });
   } else {
     bullets.push({ x: originX, y: originY, vx: gun.speed, w: 10, h: 4, color: gun.color, damage: gun.damage });
   }
 }
 
-// weapon switching (Q cycles)
 document.addEventListener("keydown", (e) => {
   if (e.code === "KeyQ") {
     weaponIndex = (weaponIndex + 1) % weaponKeys.length;
     equippedGun = weaponKeys[weaponIndex];
   }
-  // dash (if unlocked)
   if (e.code === "ShiftLeft" && techUpgrades.dash) {
     player.vx += (keys["ArrowRight"] || keys["KeyD"]) ? 8 : (keys["ArrowLeft"] || keys["KeyA"]) ? -8 : (player.vx > 0 ? 8 : -8);
   }
 });
 
-// ======= Game loop =======
+// ===== Game Loop =====
 function gameLoop() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Player movement (A/D or Arrows), jumping supports double jump when unlocked
+  // Player movement
   player.vx = 0;
   if (keys["ArrowLeft"] || keys["KeyA"]) player.vx = -5;
   if (keys["ArrowRight"] || keys["KeyD"]) player.vx = 5;
 
-  // Jump input: only trigger on keydown moment. We emulate "pressed" by checking key and small threshold.
+  // Jump logic (double jump support)
   if ((keys["Space"] || keys["KeyW"]) && (player.onGround || (techUpgrades.doubleJump && jumpCount < 2))) {
     if (player.onGround) {
       player.vy = -12;
@@ -217,21 +262,16 @@ function gameLoop() {
       player.vy = -11;
       jumpCount = 2;
     }
-    // prevent holding jump from repeatedly triggering mid-air by clearing the key for a frame:
-    keys["Space"] = false;
-    keys["KeyW"] = false;
+    // consume jump input for a single frame to avoid repeat
+    keys["Space"] = false; keys["KeyW"] = false;
   }
 
   player.update();
-
-  // Camera follows player
   cameraOffsetX = player.x - canvas.width / 2;
 
-  // Collision with platforms (and detect ground state for enemies and player)
+  // Collision for player
   player.onGround = false;
-  // simple ground check and resolve
   for (let plat of platforms) {
-    // player collision
     const willCollide = player.x < plat.x + plat.w &&
                         player.x + player.w > plat.x &&
                         player.y + player.h <= plat.y + 10 &&
@@ -245,23 +285,22 @@ function gameLoop() {
     plat.draw();
   }
 
-  // Expand terrain when approaching end
+  // Expand terrain deterministically using seeded rng (advance RNG by regenerating next platforms)
   if (player.x + canvas.width > terrainEndX - 400) {
-    const newPlatforms = generatePlatforms(terrainEndX);
-    platforms.push(...newPlatforms);
-    spawnEnemiesOn(newPlatforms);
-    terrainEndX += 800;
+    const newP = generatePlatforms(terrainEndX);
+    platforms.push(...newP);
+    spawnEnemiesOn(newP);
+    terrainEndX += 960; // matches spacing in generatePlatforms
   }
 
-  // Enemies update/draw and simple platform-edge reversal for patrols
+  // Update enemies
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
-    // gravity and simple ground detect (reusing platforms)
     e.onGround = false;
     for (let plat of platforms) {
       const touching = e.x < plat.x + plat.w &&
                        e.x + e.w > plat.x &&
-                       e.y + e.h <= plat.y + 10 &&
+                       e.y + e.h <= plat.y + 12 &&
                        e.y + e.h + e.vy >= plat.y;
       if (touching) {
         e.vy = 0;
@@ -270,10 +309,9 @@ function gameLoop() {
       }
     }
 
-    // patrol reversal when no platform under next step
+    // Patrol edge detection
     if (e.behavior === "patrol") {
-      const aheadX = e.x + (e.vx > 0 ? e.w + 6 : -6);
-      // check if there's any platform under aheadX
+      const aheadX = e.x + (e.vx > 0 ? e.w + 8 : -8);
       let hasGroundAhead = false;
       for (let plat of platforms) {
         if (aheadX > plat.x && aheadX < plat.x + plat.w && e.y + e.h <= plat.y + 12) {
@@ -281,52 +319,46 @@ function gameLoop() {
           break;
         }
       }
-      // reverse if no ground ahead or random small chance to change direction
-      if (!hasGroundAhead || Math.random() < 0.002) e.vx *= -1;
+      if (!hasGroundAhead) e.vx *= -1;
     }
 
     e.update();
     e.draw();
 
-    // enemy collides with player bullets
+    // Collide with player bullets
     for (let b of bullets) {
       if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
         e.hp -= b.damage || 1;
-        b.vx = 0; // mark for removal (stops moving)
+        b.vx = 0;
       }
     }
 
-    // enemy hit by player (optional): if enemy contacts player, push player back and reduce hp later
-
-    // destroy and drop loot
     if (e.hp <= 0) {
-      const dropType = Math.random() < 0.5 ? "tech" : "gun";
-      lootDrops.push(new Loot(e.x, e.y, dropType));
+      if (toggleLoot.checked) {
+        const dropType = rng() < 0.5 ? "tech" : "gun";
+        lootDrops.push(new Loot(e.x, e.y, dropType));
+      }
       enemies.splice(i, 1);
     }
   }
 
-  // Update bullets (player)
+  // Player bullets
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
     b.x += b.vx;
     b.y += b.vy || 0;
     ctx.fillStyle = b.color;
     ctx.fillRect(b.x - cameraOffsetX, b.y, b.w, b.h);
-    // remove if off-screen or stopped
     if (b.x - cameraOffsetX > canvas.width + 200 || b.vx === 0) bullets.splice(i, 1);
   }
 
-  // Update enemy bullets
+  // Enemy bullets
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
     const eb = enemyBullets[i];
-    eb.x += eb.vx;
-    eb.y += eb.vy || 0;
+    eb.x += eb.vx; eb.y += eb.vy || 0;
     ctx.fillStyle = eb.color;
     ctx.fillRect(eb.x - cameraOffsetX, eb.y, eb.w, eb.h);
-    // collision with player
     if (eb.x < player.x + player.w && eb.x + eb.w > player.x && eb.y < player.y + player.h && eb.y + eb.h > player.y) {
-      // simple feedback: push player and remove bullet
       player.vx += (eb.vx > 0 ? 3 : -3);
       enemyBullets.splice(i, 1);
     } else if (eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) {
@@ -334,21 +366,17 @@ function gameLoop() {
     }
   }
 
-  // Loot draw and pickup
+  // Loot draw & pickup
   for (let i = lootDrops.length - 1; i >= 0; i--) {
     const l = lootDrops[i];
     l.draw();
-    // pickup
     if (player.x < l.x + l.w && player.x + player.w > l.x && player.y < l.y + l.h && player.y + player.h > l.y) {
       if (l.type === "tech") {
-        // choose an upgrade deterministically random-ish
         const keys = Object.keys(techUpgrades);
-        const pick = keys[Math.floor(Math.random() * keys.length)];
-        techUpgrades[pick] = true;
-      } else if (l.type === "gun") {
-        // give player a random weapon that's not basic
+        techUpgrades[keys[Math.floor(rng() * keys.length)]] = true;
+      } else {
         const gunKeys = Object.keys(weapons);
-        const pick = gunKeys[Math.floor(Math.random() * gunKeys.length)];
+        const pick = gunKeys[Math.floor(rng() * gunKeys.length)];
         equippedGun = pick;
         weaponIndex = weaponKeys.indexOf(pick);
       }
@@ -356,26 +384,49 @@ function gameLoop() {
     }
   }
 
-  // Draw player last so it's on top
+  // Draw player last
   player.draw();
 
-  // HUD: equipped weapon + techs (quick overlay)
+  // HUD
   drawHUD();
 
   requestAnimationFrame(gameLoop);
 }
 
 function drawHUD() {
-  ctx.fillStyle = "rgba(0,0,0,0.4)";
-  ctx.fillRect(8, 8, 220, 72);
+  ctx.fillStyle = "rgba(0,0,0,0.45)";
+  ctx.fillRect(8, 8, 260, 80);
   ctx.fillStyle = "#fff";
   ctx.font = "14px system-ui, Arial";
   ctx.fillText("Weapon: " + equippedGun, 16, 28);
   ctx.fillStyle = "#999";
   ctx.fillText("Press Q to cycle weapons", 16, 46);
   ctx.fillStyle = "#9f9";
-  ctx.fillText("Techs: " + Object.keys(techUpgrades).filter(k => techUpgrades[k]).join(", ") || "none", 16, 64);
+  const active = Object.keys(techUpgrades).filter(k => techUpgrades[k]).join(", ") || "none";
+  ctx.fillText("Techs: " + active, 16, 66);
+  ctx.fillStyle = "#ccc";
+  ctx.fillText("Seed: " + seed, 16, 86);
 }
 
-// start loop
+// world reset helper (used by regen)
+function resetWorldAndKeepSeed() {
+  rng = mulberry32(seed);
+  resetWorld();
+}
+function resetWorld() {
+  // reset RNG state for deterministic platform/enemy generation
+  rng = mulberry32(seed);
+  platforms = [floor];
+  terrainEndX = 960;
+  const initial = generatePlatforms(0);
+  platforms.push(...initial);
+  enemies = []; lootDrops = []; bullets = []; enemyBullets = [];
+  spawnEnemiesOn(initial);
+  player.x = 100; player.y = 100; player.vx = 0; player.vy = 0;
+}
+
+// Expose reseed in console for testing
+window.reseedSession = (s) => { reseed(s); resetWorld(); };
+
+// start
 gameLoop();

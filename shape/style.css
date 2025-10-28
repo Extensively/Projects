@@ -1,14 +1,111 @@
-body {
+:root {
+  --bg: #0b0b0b;
+  --panel: #111;
+  --muted: #999;
+  --accent: #2fb;
+}
+
+html,body {
+  height: 100%;
   margin: 0;
-  background-color: #111;
+  background: var(--bg);
+  color: #ddd;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+}
+
+#app {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 12px;
   height: 100vh;
+  box-sizing: border-box;
 }
+
+/* Game area holds the canvas and keeps fixed size */
+#gameArea {
+  background: linear-gradient(#0b0b0b, #121212);
+  border: 2px solid #222;
+  width: 800px;
+  height: 600px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Canvas */
 canvas {
-  border: 2px solid #fff;
+  display: block;
+  background: transparent;
 }
+
+/* Sidebar settings */
+#settings {
+  width: 280px;
+  max-height: 600px;
+  background: linear-gradient(#111, #0f0f0f);
+  border: 2px solid #222;
+  color: #ddd;
+  padding: 8px;
+  box-sizing: border-box;
+  position: relative;
+}
+
+#toggleSettings {
+  position: absolute;
+  right: -56px;
+  top: 8px;
+  transform: rotate(0deg);
+  background: var(--panel);
+  color: #fff;
+  border: 1px solid #222;
+  padding: 6px;
+  cursor: pointer;
+  width: 52px;
+}
+
+/* Body collapsed by default visually (we keep accessible) */
+#settingsBody {
+  margin-top: 36px;
+  overflow: auto;
+  transition: max-height 0.18s ease;
+}
+
+#settingsBody.collapsed {
+  max-height: 0;
+  padding: 0 8px;
+  opacity: 0.9;
+}
+
+#settingsBody:not(.collapsed) {
+  max-height: 520px;
+  padding: 8px;
+  opacity: 1;
+}
+
+h3 {
+  margin: 10px 0 6px;
+  font-size: 14px;
+  color: var(--accent);
+}
+
+label {
+  display: block;
+  margin: 6px 0;
+  color: var(--muted);
+}
+
+button {
+  background: #222;
+  border: 1px solid #333;
+  color: #ddd;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+
+
  @keyframes rainbow {
       0% {
         color: red;
@@ -78,3 +175,18 @@ canvas {
     background-color: red;
     color: #fff;
   }
+  body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  box-sizing: border-box;
+}
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  box-sizing: border-box;
+}
