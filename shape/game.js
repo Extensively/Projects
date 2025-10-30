@@ -294,9 +294,6 @@ function drawHUD(){
   ctx.fillStyle="#9f9"; ctx.fillText("Techs: "+(Object.keys(state.techs).join(", ")||"none"),16,66);
   ctx.fillStyle="#ccc"; ctx.fillText("Seed: "+seed,16,86);
   ctx.fillStyle="#9cf"; ctx.fillText("Floor: "+(state.floor||1),16,106);
-  ctx.fillStyle = "#9cf";
-  ctx.fillText("Door %: " + Math.round(DOOR_SPAWN_CHANCE * 100) + "%", 16, 122);
-
 
   const barX=16, barY=120, barW=220, barH=12;
   ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(barX-2,barY-2,barW+4,barH+4);
@@ -306,6 +303,9 @@ function drawHUD(){
   ctx.fillStyle="#fff"; ctx.font="12px system-ui, Arial"; ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX+6, barY+10);
   ctx.fillText(`Lives: ${state.player.lives}`, barX+160, barY+10);
   ctx.fillStyle="#ffd"; ctx.fillText("Enemies: "+enemies.length,16,144);
+  ctx.fillStyle = "#9cf";
+  ctx.fillText("Door %: " + Math.round(DOOR_SPAWN_CHANCE * 100) + "%", 16, 122);
+
 }
 
 // ---------- Physics update ----------
