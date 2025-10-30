@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+  <link rel="icon" type="image/gif" href="https://extensively.github.io/Projects/img/roach.gif">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shapez V0.6.7</title>
+  <title>Shapez V0.41.67</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body style="color: #FFFFFF;">
@@ -34,7 +35,23 @@
         <div>Jump: W or Space</div>
         <div>Shoot: Mouse click</div>
         <div>Cycle weapons: Q</div>
-        <h3>Toggles</h3>
+        <h3>World</h3>
+        <label>Expansion amount:
+          <input id="expansionAmount" type="number" min="1" max="50" value="10" />
+        </label>
+        <label>Wall distance (px):
+          <input id="wallDistance" type="number" min="400" max="20000" value="3000" />
+        </label>
+        <label>
+          <input id="infiniteWalls" type="checkbox" checked />
+          Enable far walls
+        </label>
+
+        <h3>Combat</h3>
+        <label>Attack rate (shots/sec):
+          <input id="attackRateInput" type="number" min="0.5" max="20" step="0.1" value="6" />
+        </label>
+        <h3>Debug Toggles</h3>
         <label><input type="checkbox" id="toggleSpawn" checked /> Spawn Enemies</label>
         <label><input type="checkbox" id="toggleLoot" checked /> Loot Drops</label>
         <h3>Game</h3>

@@ -1,5 +1,5 @@
-/* game.js — fixed-timestep prototype with editable techs, health/lives, effects
-   Converted to a fixed update rate (60 Hz) and separated render/update.
+/* game.js — fixed-timestep prototype with extra features:
+   attack rate cap, bi-directional generation, walls, door entity
    Drop this file in place of your game.js.
 */
 
@@ -11,12 +11,19 @@ let deltaAccumulator = 0;
 const MAX_ACCUM_SECONDS = 0.25;
 
 const FPS_BASIS = 60; // used to convert legacy per-frame numbers to per-second
-// Tweak these to change feel (converted from previous px/frame values)
-const PLAYER_SPEED = 5 * FPS_BASIS;        // px/sec (was 5 px/frame)
-const JUMP_SPEED = 12 * FPS_BASIS;        // px/sec (was 12 px/frame)
-const GRAVITY = 0.5 * FPS_BASIS * FPS_BASIS; // px/sec^2 (was 0.5 px/frame^2)
-const ENEMY_PATROL_SPEED = 1.5 * FPS_BASIS; // px/sec (was 1.5 px/frame)
+const PLAYER_SPEED = 5 * FPS_BASIS;        // px/sec
+const JUMP_SPEED = 12 * FPS_BASIS;         // px/sec
+const GRAVITY = 0.5 * FPS_BASIS * FPS_BASIS; // px/sec^2
+const ENEMY_PATROL_SPEED = 1.5 * FPS_BASIS; // px/sec
 const BULLET_SPEED_SCALE = FPS_BASIS;      // multiply weapon.speed by this to get px/sec
+
+// ---------- Settings defaults (editable) ----------
+const SETTINGS_DEFAULTS = {
+  WORLD_EXPANSION_CHUNKS: 10,
+  WALL_DISTANCE: 3000,
+  ENABLE_WALLS: true,
+  PLAYER_ATTACK_RATE: 6 // shots per second
+};
 
 // ---------- Basic canvas / input / settings ----------
 const canvas = document.getElementById("gameCanvas");
@@ -29,19 +36,40 @@ const settingsBody = document.getElementById("settingsBody");
 const regenSeedBtn = document.getElementById("regenSeed");
 const livesDisplay = document.getElementById("livesDisplay");
 
+// new inputs (may not exist if index.html not updated) — fall back to defaults
+const expansionAmountInput = document.getElementById("expansionAmount");
+const wallDistanceInput = document.getElementById("wallDistance");
+const infiniteWallsCheckbox = document.getElementById("infiniteWalls");
+const attackRateInput = document.getElementById("attackRateInput");
+
+// runtime adjustable params (use DOM values if present)
+let WORLD_EXPANSION_CHUNKS = expansionAmountInput ? Math.max(1, Number(expansionAmountInput.value)) : SETTINGS_DEFAULTS.WORLD_EXPANSION_CHUNKS;
+let WALL_DISTANCE = wallDistanceInput ? Math.max(200, Number(wallDistanceInput.value)) : SETTINGS_DEFAULTS.WALL_DISTANCE;
+let ENABLE_WALLS = infiniteWallsCheckbox ? infiniteWallsCheckbox.checked : SETTINGS_DEFAULTS.ENABLE_WALLS;
+let PLAYER_ATTACK_RATE = attackRateInput ? Math.max(0.1, Number(attackRateInput.value)) : SETTINGS_DEFAULTS.PLAYER_ATTACK_RATE;
+
+// bind inputs if present
+if (expansionAmountInput) expansionAmountInput.addEventListener("change", () => { WORLD_EXPANSION_CHUNKS = Math.max(1, Number(expansionAmountInput.value)); });
+if (wallDistanceInput) wallDistanceInput.addEventListener("change", () => { WALL_DISTANCE = Math.max(200, Number(wallDistanceInput.value)); updateWalls(); });
+if (infiniteWallsCheckbox) infiniteWallsCheckbox.addEventListener("change", () => { ENABLE_WALLS = infiniteWallsCheckbox.checked; updateWalls(); });
+if (attackRateInput) attackRateInput.addEventListener("change", () => { PLAYER_ATTACK_RATE = Math.max(0.1, Number(attackRateInput.value)); });
+
+// UI toggles
 let keys = {};
 let cameraOffsetX = 0;
 let shake = { intensity: 0, time: 0 };
 
-toggleBtn.addEventListener("click", () => {
-  const collapsed = settingsBody.classList.toggle("collapsed");
-  toggleBtn.textContent = collapsed ? "Settings ▸" : "Settings ◂";
-});
-regenSeedBtn.addEventListener("click", () => { reseed(Math.floor(Math.random() * 1e9)); resetWorld(); });
+if (toggleBtn && settingsBody) {
+  toggleBtn.addEventListener("click", () => {
+    const collapsed = settingsBody.classList.toggle("collapsed");
+    toggleBtn.textContent = collapsed ? "Settings ▸" : "Settings ◂";
+  });
+}
+if (regenSeedBtn) regenSeedBtn.addEventListener("click", () => { reseed(Math.floor(Math.random() * 1e9)); resetWorld(); });
 
 // ---------- Seeded RNG (mulberry32) ----------
 let seed = Math.floor(Math.random() * 1e9);
-seedDisplay.textContent = seed;
+if (seedDisplay) seedDisplay.textContent = seed;
 function mulberry32(a) {
   return function() {
     a |= 0; a = a + 0x6D2B79F5 | 0;
@@ -51,15 +79,15 @@ function mulberry32(a) {
   }
 }
 let rng = mulberry32(seed);
-function reseed(newSeed) { seed = newSeed | 0; rng = mulberry32(seed); seedDisplay.textContent = seed; }
+function reseed(newSeed) { seed = newSeed | 0; rng = mulberry32(seed); if (seedDisplay) seedDisplay.textContent = seed; }
 
 // ---------- Global configs (move to JSON later) ----------
 const GAME_CONFIG = {
   playerBaseMaxHp: 10,
   playerBaseLives: 3,
-  playerInvulnSec: 1.0,       // seconds
-  playerHpRegenPerSec: 0,     // base regen; tech can increase
-  respawnInvulnSec: 2.0,      // seconds
+  playerInvulnSec: 1.0,
+  playerHpRegenPerSec: 0,
+  respawnInvulnSec: 2.0,
   screenShakeIntensityOnHit: 6,
   particleCountOnHit: 12
 };
@@ -70,66 +98,52 @@ const WEAPON_CONFIG = {
   spread: { speed: 7, color: "#f0f", damage: 1, spread: true }
 };
 
-// Editable tech catalogue — easy to extend later
+// ---------- Editable tech catalogue ----------
 const TECH_CATALOG = {
   hp_boost: {
-    id: "hp_boost",
-    name: "HP Boost",
-    description: "Increase max HP by 4",
+    id: "hp_boost", name: "HP Boost", description: "Increase max HP by 4",
     apply(state) { state.player.maxHp += 4; state.player.hp += 4; },
     revert(state) { state.player.maxHp -= 4; if (state.player.hp > state.player.maxHp) state.player.hp = state.player.maxHp; }
   },
   regen_boost: {
-    id: "regen_boost",
-    name: "HP Regen",
-    description: "Restore 1 HP every 2 seconds",
+    id: "regen_boost", name: "HP Regen", description: "Restore 1 HP every 2 seconds",
     apply(state) { state.player.regen += 0.5; },
     revert(state) { state.player.regen = Math.max(0, state.player.regen - 0.5); }
   },
   invuln_ext: {
-    id: "invuln_ext",
-    name: "Extended Invuln",
-    description: "Increase invulnerability duration",
-    apply(state) { state.player.invulnFrames += 40; state.player.invulnSec += 0.66; },
-    revert(state) { state.player.invulnFrames = Math.max(0, state.player.invulnFrames - 40); state.player.invulnSec = Math.max(0.1, state.player.invulnSec - 0.66); }
+    id: "invuln_ext", name: "Extended Invuln", description: "Increase invulnerability duration",
+    apply(state) { /* increase seconds by 0.66s approx */ state.player.invulnSec = (state.player.invulnSec || GAME_CONFIG.playerInvulnSec) + 0.66; },
+    revert(state) { state.player.invulnSec = Math.max(0.1, (state.player.invulnSec || GAME_CONFIG.playerInvulnSec) - 0.66); }
   },
   damage_amp: {
-    id: "damage_amp",
-    name: "Damage Amp",
-    description: "Increase player bullet damage multiplier",
+    id: "damage_amp", name: "Damage Amp", description: "Increase player bullet damage multiplier",
     apply(state) { state.player.damageMult *= 1.5; },
     revert(state) { state.player.damageMult /= 1.5; }
   },
   extra_life: {
-    id: "extra_life",
-    name: "Extra Life",
-    description: "Gain one extra life",
+    id: "extra_life", name: "Extra Life", description: "Gain one extra life",
     apply(state) { state.player.lives += 1; },
     revert(state) { state.player.lives = Math.max(0, state.player.lives - 1); }
   }
 };
 
-// ---------- Runtime state (player and game) ----------
+// ---------- Runtime state ----------
 const state = {
   player: {
     x: 100, y: 100, w: 30, h: 30, vx: 0, vy: 0,
     baseColor: "#0f0", color: "#0f0",
     maxHp: GAME_CONFIG.playerBaseMaxHp,
     hp: GAME_CONFIG.playerBaseMaxHp,
-    invuln: 0, invulnFrames: Math.round(GAME_CONFIG.playerInvulnSec * FIXED_HZ),
-    invulnSec: GAME_CONFIG.playerBaseMaxHp ? GAME_CONFIG.playerBaseMaxHp*0 : GAME_CONFIG.playerBaseMaxHp*0 + 1.0, // fallback field (not used much)
-    regen: GAME_CONFIG.playerHpRegenPerSec, // HP per second
-    damageMult: 1,
-    lives: GAME_CONFIG.playerBaseLives,
-    checkpoint: { x: 100, y: 100 },
-    jumpCount: 0,
-    invulnFrameCounter: 0
+    invuln: 0, invulnSec: GAME_CONFIG.playerInvulnSec, regen: GAME_CONFIG.playerHpRegenPerSec,
+    damageMult: 1, lives: GAME_CONFIG.playerBaseLives,
+    checkpoint: { x: 100, y: 100 }, jumpCount: 0
   },
-  techs: {}, // applied tech IDs => true
-  equippedGun: "basic"
+  techs: {},
+  equippedGun: "basic",
+  floor: 1
 };
 
-// particle pool for hits/explosion
+// ---------- Particle pool ----------
 const PARTICLE_POOL = [];
 for (let i = 0; i < 120; i++) PARTICLE_POOL.push({ active: false });
 
@@ -137,7 +151,7 @@ for (let i = 0; i < 120; i++) PARTICLE_POOL.push({ active: false });
 document.addEventListener("keydown", e => keys[e.code] = true);
 document.addEventListener("keyup", e => keys[e.code] = false);
 
-// mouse aiming
+// mouse aim state
 let mouseX = 0, mouseY = 0, mouseDown = false;
 canvas.addEventListener("mousemove", (e) => {
   const rect = canvas.getBoundingClientRect();
@@ -156,7 +170,10 @@ canvas.addEventListener("touchmove", (e) => {
 });
 canvas.addEventListener("touchend", () => { mouseDown = false; });
 
-// ---------- Entities: Platform, Enemy, Loot ----------
+// compatibility: legacy call sites may use canvas.addEventListener("click", shootBullet)
+function shootBullet() { shootBulletAtMouse(); }
+
+// ---------- Entities: Platform, Enemy, Loot, Door ----------
 class Platform {
   constructor(x, y, w, h) { this.x = x; this.y = y; this.w = w; this.h = h; this.color = "#444"; }
   draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h); }
@@ -170,9 +187,9 @@ class Enemy {
     this.color = this.baseColor;
     this.vx = behavior === "patrol" ? (rng() < 0.5 ? -ENEMY_PATROL_SPEED : ENEMY_PATROL_SPEED) : 0;
     this.vy = 0; this.maxHp = 6; this.hp = this.maxHp; this.onGround = false;
-    this.jumpCooldown = rng() * 1.0; // seconds
-    this.shootCooldown = rng() * 2.0 + 1.0; // seconds
-    this.hitTimer = 0; // seconds
+    this.jumpCooldown = rng() * 1.0;
+    this.shootCooldown = rng() * 2.0 + 1.0;
+    this.hitTimer = 0;
   }
   draw() {
     ctx.fillStyle = this.color;
@@ -191,32 +208,29 @@ class Enemy {
     // HP bar
     const barW = this.w, barH = 5;
     const barX = this.x - cameraOffsetX, barY = this.y - 8;
-    ctx.fillStyle = "rgba(0,0,0,0.6)";
-    ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+    ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
     const pct = Math.max(0, Math.min(1, this.hp / this.maxHp));
-    ctx.fillStyle = `rgba(255,60,60,0.95)`;
-    ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
+    ctx.fillStyle = "rgba(255,60,60,0.95)"; ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
   }
   applyDamage(dmg, sourceVx = 0) {
     this.hp -= dmg;
-    this.hitTimer = 0.2; // seconds flash
+    this.hitTimer = 0.2;
     this.color = "#fff";
     this.vx += (sourceVx || 0) * 0.6;
     spawnParticles(this.x + this.w/2, this.y + this.h/2, GAME_CONFIG.particleCountOnHit);
     shakeScreen(1.6, 0.2);
   }
   update(dt) {
-    if (this.hitTimer > 0) {
-      this.hitTimer = Math.max(0, this.hitTimer - dt);
-      if (this.hitTimer === 0) this.color = this.baseColor;
-    }
+    if (this.hitTimer > 0) { this.hitTimer = Math.max(0, this.hitTimer - dt); if (this.hitTimer === 0) this.color = this.baseColor; }
     if (this.behavior === "jump") {
       if (this.jumpCooldown <= 0 && this.onGround) { this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng() * 1.0; }
       if (this.jumpCooldown > 0) this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
     }
     if (this.behavior === "shooter") {
       if (this.shootCooldown <= 0) {
-        enemyBullets.push({ x: this.x + this.w/2, y: this.y + this.h/2, vx: (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS, vy: 0, w: 6, h: 6, color: "#f80", damage: 1 });
+        const vx = (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS;
+        const vy = 0;
+        enemyBullets.push({ x: this.x + this.w/2, y: this.y + this.h/2, vx, vy, w: 6, h: 6, color: "#f80", damage: 1, angle: Math.atan2(vy, vx) });
         this.shootCooldown = 2.0 + rng() * 1.5;
       } else this.shootCooldown = Math.max(0, this.shootCooldown - dt);
     }
@@ -231,14 +245,36 @@ class Loot {
   draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h); }
 }
 
+class Door {
+  constructor(x, y) { this.x = x; this.y = y; this.w = 48; this.h = 72; this.color = "#66ffff"; this.outline = "#006d6d"; }
+  draw() {
+    ctx.fillStyle = this.color;
+    ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h);
+    ctx.strokeStyle = this.outline; ctx.lineWidth = 2;
+    ctx.strokeRect(this.x - cameraOffsetX + 1, this.y + 1, this.w - 2, this.h - 2);
+  }
+}
+
 // ---------- World state ----------
 const floor = new Platform(-10000, canvas.height - 40, 20000, 40);
 let platforms = [];
+let worldLeftX = 0;
+let worldRightX = 0;
 let terrainEndX = 0;
 let enemies = [];
 let lootDrops = [];
-let bullets = [];       // each bullet: { x, y, vx(px/s), vy(px/s), w, h, color, damage }
+let bullets = [];       // {x,y,vx,vy,w,h,color,damage,angle}
 let enemyBullets = [];
+let doors = [];
+
+// walls
+let leftWallX = -SETTINGS_DEFAULTS.WALL_DISTANCE;
+let rightWallX = SETTINGS_DEFAULTS.WALL_DISTANCE;
+function updateWalls() {
+  leftWallX = ENABLE_WALLS ? -WALL_DISTANCE : -999999;
+  rightWallX = ENABLE_WALLS ? WALL_DISTANCE : 999999;
+}
+updateWalls();
 
 // ---------- Utility: particles, screen shake ----------
 function spawnParticles(x, y, count) {
@@ -248,10 +284,10 @@ function spawnParticles(x, y, count) {
       p.active = true;
       p.x = x; p.y = y;
       const ang = rng() * Math.PI * 2;
-      const spd = 40 + rng() * 80; // px/sec
+      const spd = 40 + rng() * 80;
       p.vx = Math.cos(ang) * spd;
       p.vy = Math.sin(ang) * spd - 60;
-      p.life = 0.2 + rng() * 0.6; // seconds
+      p.life = 0.2 + rng() * 0.6;
       p.color = `hsl(${Math.floor(rng() * 60)},80%,60%)`;
       count--;
     }
@@ -260,7 +296,7 @@ function spawnParticles(x, y, count) {
 function updateParticles(dt) {
   for (let p of PARTICLE_POOL) {
     if (!p.active) continue;
-    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 900 * dt; // gravity scale
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 900 * dt;
     p.life -= dt;
     if (p.life <= 0) { p.active = false; continue; }
     ctx.fillStyle = p.color; ctx.fillRect(p.x - cameraOffsetX, p.y, 2, 2);
@@ -268,12 +304,11 @@ function updateParticles(dt) {
 }
 function shakeScreen(amount = 2, time = 0.18) { shake.intensity = Math.max(shake.intensity, amount); shake.time = Math.max(shake.time, time); }
 
-// ---------- Player helpers: damage, respawn, apply tech ----------
+// ---------- Player helpers ----------
 function applyTech(techId) {
   if (!TECH_CATALOG[techId] || state.techs[techId]) return;
   TECH_CATALOG[techId].apply(state);
-  state.techs[techId] = true;
-  updateHUD();
+  state.techs[techId] = true; updateHUD();
 }
 function pickupRandomTech() {
   const keys = Object.keys(TECH_CATALOG);
@@ -284,9 +319,9 @@ function pickupRandomTech() {
 function damagePlayer(amount, sourceVx = 0) {
   if (state.player.invuln > 0) return;
   state.player.hp -= amount;
-  state.player.invuln = GAME_CONFIG.playerInvulnSec; // seconds
+  state.player.invuln = state.player.invulnSec || GAME_CONFIG.playerInvulnSec;
   state.player.color = "#fff";
-  state.player.vx += sourceVx > 0 ? 200 : -200; // px/sec knockback
+  state.player.vx += sourceVx > 0 ? 200 : -200;
   shakeScreen(GAME_CONFIG.screenShakeIntensityOnHit, 0.25);
   spawnParticles(state.player.x + state.player.w/2, state.player.y + state.player.h/2, 8);
   if (state.player.hp <= 0) handlePlayerDeath();
@@ -294,23 +329,19 @@ function damagePlayer(amount, sourceVx = 0) {
 function handlePlayerDeath() {
   state.player.lives = Math.max(0, state.player.lives - 1);
   if (state.player.lives <= 0) {
-    // full reset (simple behavior)
     state.player.lives = GAME_CONFIG.playerBaseLives;
     reseed(Math.floor(Math.random() * 1e9));
   }
-  // respawn at checkpoint
   state.player.hp = state.player.maxHp;
-  state.player.x = state.player.checkpoint.x;
-  state.player.y = state.player.checkpoint.y;
+  state.player.x = state.player.checkpoint.x; state.player.y = state.player.checkpoint.y;
   state.player.vx = 0; state.player.vy = 0;
   state.player.invuln = GAME_CONFIG.respawnInvulnSec;
   updateHUD();
 }
 
-// ---------- Generate platforms & spawn enemies (seeded) ----------
-function generatePlatforms(startX = 0) {
+// ---------- Generate platforms & spawn enemies / doors ----------
+function generatePlatforms(startX = 0, count = WORLD_EXPANSION_CHUNKS) {
   const ret = [];
-  const count = 10;
   for (let i = 0; i < count; i++) {
     const x = startX + i * 96 + Math.floor(rng() * 48);
     const y = 380 + Math.floor(rng() * 180);
@@ -318,8 +349,9 @@ function generatePlatforms(startX = 0) {
   }
   return ret;
 }
+
 function spawnEnemiesOn(platformArray, preferVisible = false) {
-  if (!toggleSpawn.checked) return;
+  if (!toggleSpawn || !toggleSpawn.checked) return;
   for (let plat of platformArray) {
     if (plat === floor) continue;
     if (rng() < 0.45) {
@@ -338,346 +370,323 @@ function spawnEnemiesOn(platformArray, preferVisible = false) {
   }
 }
 
+function spawnDoorsOn(platformArray, guarantee = false) {
+  for (let plat of platformArray) {
+    if (rng() < 0.12 || (guarantee && doors.length === 0)) {
+      const dx = plat.x + Math.floor(plat.w/2) - 24 + Math.floor(rng() * 40 - 20);
+      const dy = plat.y - 72;
+      doors.push(new Door(dx, dy));
+    }
+  }
+}
+
 // ---------- Reset world (deterministic per seed) ----------
 function computeTerrainEnd() { let maxX = 0; for (let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
 function resetWorld() {
   rng = mulberry32(seed);
   platforms = [floor];
-  terrainEndX = 960;
-  const initial = generatePlatforms(0);
+  const initial = generatePlatforms(0, WORLD_EXPANSION_CHUNKS);
   platforms.push(...initial);
-  enemies = []; lootDrops = []; bullets = []; enemyBullets = [];
+  enemies = []; lootDrops = []; bullets = []; enemyBullets = []; doors = [];
+  // set extents
+  worldLeftX = initial[0].x - 400;
+  worldRightX = initial[initial.length - 1].x + 400;
+  terrainEndX = computeTerrainEnd();
+  updateWalls();
   spawnEnemiesOn(initial, true);
+  spawnDoorsOn(initial, true); // guarantee at least one door
   state.player.x = state.player.checkpoint.x = 100;
   state.player.y = state.player.checkpoint.y = 100;
   state.player.vx = state.player.vy = 0;
   state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
   state.player.hp = state.player.maxHp;
   state.player.invuln = 0;
-  state.player.invulnFrames = Math.round(GAME_CONFIG.playerInvulnSec * FIXED_HZ);
+  state.player.invulnSec = GAME_CONFIG.playerInvulnSec;
   state.player.regen = GAME_CONFIG.playerHpRegenPerSec;
   state.player.damageMult = 1;
   state.player.lives = GAME_CONFIG.playerBaseLives;
   state.techs = {};
   updateHUD();
 }
-reseed(seed);
-resetWorld();
+reseed(seed); resetWorld();
+
+// ---------- Attack rate enforcement and auto-fire ----------
+if (!state.player.lastShotTime) state.player.lastShotTime = -999;
+function canFireNow() {
+  const now = performance.now() / 1000;
+  const minDelay = 1 / PLAYER_ATTACK_RATE;
+  return (now - (state.player.lastShotTime || -999)) >= minDelay;
+}
+function noteShotFired() {
+  state.player.lastShotTime = performance.now() / 1000;
+}
+function handleAutoFire() {
+  if (mouseDown && canFireNow()) { shootBulletAtMouse(); noteShotFired(); }
+}
 
 // ---------- Shooting & weapon switching (mouse-aimed) ----------
 function shootBulletAtMouse() {
+  if (!canFireNow()) return; // enforce attack cap
   const gun = WEAPON_CONFIG[state.equippedGun] || WEAPON_CONFIG.basic;
   const originX = state.player.x + state.player.w / 2;
   const originY = state.player.y + state.player.h / 2;
-
-  // convert mouse (screen) coords to world coords (account for camera)
   const worldMouseX = mouseX + cameraOffsetX;
   const worldMouseY = mouseY;
-
-  // direction vector from origin to mouse
-  let dx = worldMouseX - originX;
-  let dy = worldMouseY - originY;
-  const dist = Math.hypot(dx, dy) || 1;
-  dx /= dist; dy /= dist;
-
+  let dx = worldMouseX - originX; let dy = worldMouseY - originY;
+  const dist = Math.hypot(dx, dy) || 1; dx /= dist; dy /= dist;
   const baseSpeed = (gun.speed || 8) * BULLET_SPEED_SCALE; // px/sec
   const damage = Math.max(1, Math.round((gun.damage || 1) * state.player.damageMult));
 
   function pushBulletWithAngle(angleOffset, speedMultiplier = 1) {
-    const cos = Math.cos(angleOffset);
-    const sin = Math.sin(angleOffset);
+    const cos = Math.cos(angleOffset); const sin = Math.sin(angleOffset);
     const rx = dx * cos - dy * sin;
     const ry = dx * sin + dy * cos;
-    bullets.push({
-      x: originX + rx * (state.player.w / 2 + 4),
-      y: originY + ry * (state.player.h / 2 + 4),
-      vx: rx * baseSpeed * speedMultiplier,
-      vy: ry * baseSpeed * speedMultiplier,
-      w: 8, h: 4, color: gun.color, damage
-    });
+    const vx = rx * baseSpeed * speedMultiplier;
+    const vy = ry * baseSpeed * speedMultiplier;
+    bullets.push({ x: originX + rx * (state.player.w / 2 + 4), y: originY + ry * (state.player.h / 2 + 4), vx, vy, w: 8, h: 4, color: gun.color, damage, angle: Math.atan2(vy, vx) });
   }
 
   if (gun.spread) {
     const spreadAngle = 10 * (Math.PI / 180);
-    pushBulletWithAngle(-spreadAngle, 1);
-    pushBulletWithAngle(0, 1);
-    pushBulletWithAngle(spreadAngle, 1);
+    pushBulletWithAngle(-spreadAngle, 1); pushBulletWithAngle(0, 1); pushBulletWithAngle(spreadAngle, 1);
   } else {
     pushBulletWithAngle(0, 1);
   }
-}
-function shootBullet() {
-  // forward to mouse-aimed shooter; keep behavior if mouse not set
-  try {
-    shootBulletAtMouse();
-  } catch (e) {
-    // fallback: create a forward shot if mouse data missing
-    // simple straight-right shot from player
-    const originX = state.player.x + state.player.w / 2;
-    const originY = state.player.y + state.player.h / 2;
-    const baseSpeed = (WEAPON_CONFIG[state.equippedGun]?.speed || 8) * BULLET_SPEED_SCALE;
-    const damage = Math.max(1, Math.round((WEAPON_CONFIG[state.equippedGun]?.damage || 1) * state.player.damageMult));
-    bullets.push({ x: originX, y: originY, vx: baseSpeed, vy: 0, w: 8, h: 4, color: WEAPON_CONFIG[state.equippedGun]?.color || "#fff", damage });
-  }
+  noteShotFired();
 }
 
 document.addEventListener("keydown", (e) => {
-  if (e.code === "KeyQ") {
-    const keys = Object.keys(WEAPON_CONFIG);
-    let idx = keys.indexOf(state.equippedGun);
-    idx = (idx + 1) % keys.length;
-    state.equippedGun = keys[idx];
-  }
+  if (e.code === "KeyQ") { const ks = Object.keys(WEAPON_CONFIG); let idx = ks.indexOf(state.equippedGun); idx = (idx + 1) % ks.length; state.equippedGun = ks[idx]; }
   if (e.code === "ShiftLeft" && state.techs["dash"]) {
     state.player.vx += (keys["ArrowRight"] || keys["KeyD"]) ? 8 * FPS_BASIS : (keys["ArrowLeft"] || keys["KeyA"]) ? -8 * FPS_BASIS : (state.player.vx > 0 ? 8 * FPS_BASIS : -8 * FPS_BASIS);
   }
 });
 
 // ---------- HUD ----------
-function updateHUD() { livesDisplay.textContent = state.player.lives; }
+function updateHUD() { if (livesDisplay) livesDisplay.textContent = state.player.lives; }
 function drawHUD() {
-  ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillRect(8, 8, 320, 120);
-  ctx.fillStyle = "#fff";
-  ctx.font = "14px system-ui, Arial";
-  ctx.fillText("Weapon: " + state.equippedGun, 16, 28);
-  ctx.fillStyle = "#999";
-  ctx.fillText("Press Q to cycle weapons", 16, 46);
-  ctx.fillStyle = "#9f9";
-  const active = Object.keys(state.techs).join(", ") || "none";
-  ctx.fillText("Techs: " + active, 16, 66);
-  ctx.fillStyle = "#ccc";
-  ctx.fillText("Seed: " + seed, 16, 86);
+  ctx.fillStyle = "rgba(0,0,0,0.45)"; ctx.fillRect(8, 8, 360, 132);
+  ctx.fillStyle = "#fff"; ctx.font = "14px system-ui, Arial"; ctx.fillText("Weapon: " + state.equippedGun, 16, 28);
+  ctx.fillStyle = "#999"; ctx.fillText("Press Q to cycle weapons", 16, 46);
+  ctx.fillStyle = "#9f9"; const active = Object.keys(state.techs).join(", ") || "none"; ctx.fillText("Techs: " + active, 16, 66);
+  ctx.fillStyle = "#ccc"; ctx.fillText("Seed: " + seed, 16, 86);
+  ctx.fillStyle = "#9cf"; ctx.fillText("Floor: " + (state.floor || 1), 16, 106);
 
   // Player HP bar
-  const barX = 16, barY = 110, barW = 180, barH = 12;
-  ctx.fillStyle = "rgba(0,0,0,0.6)";
-  ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
+  const barX = 16, barY = 120, barW = 220, barH = 12;
+  ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(barX - 2, barY - 2, barW + 4, barH + 4);
   const pct = Math.max(0, state.player.hp / state.player.maxHp);
-  ctx.fillStyle = "#e44";
-  ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
-  ctx.strokeStyle = "#000";
-  ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
-  ctx.fillStyle = "#fff";
-  ctx.font = "12px system-ui, Arial";
-  ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX + 6, barY + 10);
-  ctx.fillText(`Lives: ${state.player.lives}`, barX + 120, barY + 10);
-
-  ctx.fillStyle = "#ffd";
-  ctx.fillText("Enemies: " + enemies.length, 16, 140);
+  ctx.fillStyle = "#e44"; ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
+  ctx.strokeStyle = "#000"; ctx.strokeRect(barX - 2, barY - 2, barW + 4, barH + 4);
+  ctx.fillStyle = "#fff"; ctx.font = "12px system-ui, Arial"; ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX + 6, barY + 10);
+  ctx.fillText(`Lives: ${state.player.lives}`, barX + 160, barY + 10);
+  ctx.fillStyle = "#ffd"; ctx.fillText("Enemies: " + enemies.length, 16, 144);
 }
 
 // ---------- Physics update (fixed timestep) ----------
 function updatePhysics(dt) {
-  // dt in seconds
-  // Screen shake timer
-  if (shake.time > 0) {
-    shake.time = Math.max(0, shake.time - dt);
-  } else {
-    shake.intensity = 0;
-  }
+  // shake timer
+  if (shake.time > 0) { shake.time = Math.max(0, shake.time - dt); } else { shake.intensity = 0; }
 
-  // Player movement (vx is px/sec)
+  // player movement
   state.player.vx = 0;
   if (keys["ArrowLeft"] || keys["KeyA"]) state.player.vx = -PLAYER_SPEED;
   if (keys["ArrowRight"] || keys["KeyD"]) state.player.vx = PLAYER_SPEED;
 
-  // Jump input (instant velocity set)
+  // jump
   if ((keys["Space"] || keys["KeyW"]) && (state.player.onGround || (state.techs["double_jump"] && state.player.jumpCount < 2))) {
-    if (state.player.onGround) {
-      state.player.vy = -JUMP_SPEED; state.player.onGround = false; state.player.jumpCount = 1;
-    } else if (state.techs["double_jump"] && state.player.jumpCount === 1) {
-      state.player.vy = -JUMP_SPEED * 0.92; state.player.jumpCount = 2;
-    }
+    if (state.player.onGround) { state.player.vy = -JUMP_SPEED; state.player.onGround = false; state.player.jumpCount = 1; }
+    else if (state.techs["double_jump"] && state.player.jumpCount === 1) { state.player.vy = -JUMP_SPEED * 0.92; state.player.jumpCount = 2; }
     keys["Space"] = false; keys["KeyW"] = false;
   }
 
-  // Apply physics
+  // integrate
   state.player.vy += GRAVITY * dt;
   state.player.x += state.player.vx * dt;
   state.player.y += state.player.vy * dt;
 
-  // camera follows player (no smoothing)
+  // camera
   cameraOffsetX = state.player.x - canvas.width / 2;
 
-  // Player collision with platforms
+  // player collisions
   state.player.onGround = false;
   for (let plat of platforms) {
     const willCollide = state.player.x < plat.x + plat.w &&
                         state.player.x + state.player.w > plat.x &&
                         state.player.y + state.player.h <= plat.y + 10 &&
                         state.player.y + state.player.h + state.player.vy * dt >= plat.y;
-    if (willCollide) {
-      state.player.vy = 0;
-      state.player.y = plat.y - state.player.h;
-      state.player.onGround = true;
-      state.player.jumpCount = 0;
-    }
+    if (willCollide) { state.player.vy = 0; state.player.y = plat.y - state.player.h; state.player.onGround = true; state.player.jumpCount = 0; }
   }
 
-  // Terrain expand (deterministic)
-  if (state.player.x + canvas.width > terrainEndX - 400) {
-    const newP = generatePlatforms(terrainEndX);
+  // expand world to right
+  const EXPAND_THRESHOLD = 400;
+  if (state.player.x + canvas.width > worldRightX - EXPAND_THRESHOLD) {
+    const newStart = worldRightX + 16;
+    const newP = generatePlatforms(newStart, WORLD_EXPANSION_CHUNKS);
     platforms.push(...newP);
     spawnEnemiesOn(newP);
-    terrainEndX = computeTerrainEnd();
+    spawnDoorsOn(newP, false);
+    worldRightX = computeTerrainEnd();
+  }
+  // expand world to left
+  if (state.player.x < worldLeftX + EXPAND_THRESHOLD) {
+    const startX = worldLeftX - (WORLD_EXPANSION_CHUNKS * 96);
+    const newP = generatePlatforms(startX, WORLD_EXPANSION_CHUNKS);
+    platforms.push(...newP);
+    spawnEnemiesOn(newP);
+    spawnDoorsOn(newP, false);
+    worldLeftX = Math.min(...platforms.map(p => p.x));
   }
 
-  // Update enemies
+  // update enemies
   for (let i = enemies.length - 1; i >= 0; i--) {
-    const e = enemies[i];
-    e.onGround = false;
+    const e = enemies[i]; e.onGround = false;
     for (let plat of platforms) {
-      const touching = e.x < plat.x + plat.w &&
-                       e.x + e.w > plat.x &&
-                       e.y + e.h <= plat.y + 12 &&
-                       e.y + e.h + e.vy * dt >= plat.y;
-      if (touching) {
-        e.vy = 0;
-        e.y = plat.y - e.h;
-        e.onGround = true;
-      }
+      const touching = e.x < plat.x + plat.w && e.x + e.w > plat.x && e.y + e.h <= plat.y + 12 && e.y + e.h + e.vy * dt >= plat.y;
+      if (touching) { e.vy = 0; e.y = plat.y - e.h; e.onGround = true; }
     }
-
-    // Patrol edge detection (uses world coords, e.vx in px/sec)
     if (e.behavior === "patrol") {
       const aheadX = e.x + (e.vx > 0 ? e.w + 8 : -8);
       let hasGroundAhead = false;
-      for (let plat of platforms) {
-        if (aheadX > plat.x && aheadX < plat.x + plat.w && e.y + e.h <= plat.y + 12) { hasGroundAhead = true; break; }
-      }
+      for (let plat of platforms) { if (aheadX > plat.x && aheadX < plat.x + plat.w && e.y + e.h <= plat.y + 12) { hasGroundAhead = true; break; } }
       if (!hasGroundAhead) e.vx *= -1;
     }
-
     e.update(dt);
-
-    // Bullet collisions (bullets are px/sec motion already)
+    // bullet collisions
     for (let b of bullets) {
       if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
         e.applyDamage(b.damage || 1, Math.sign(b.vx || 1));
-        b.vx = 0;
-        b.vy = 0;
+        b.vx = 0; b.vy = 0;
       }
     }
-
-    // player contact damage
+    // player contact
     if (state.player.x < e.x + e.w && state.player.x + state.player.w > e.x && state.player.y < e.y + e.h && state.player.y + state.player.h > e.y) {
-      damagePlayer(1, e.vx || 0);
-      state.player.vy = -JUMP_SPEED * 0.5;
+      damagePlayer(1, e.vx || 0); state.player.vy = -JUMP_SPEED * 0.5;
     }
-
     if (e.hp <= 0) {
-      if (toggleLoot.checked) {
-        const dropType = rng() < 0.5 ? "tech" : "gun";
-        lootDrops.push(new Loot(e.x, e.y, dropType));
-      }
+      if (toggleLoot && toggleLoot.checked) { const dropType = rng() < 0.5 ? "tech" : "gun"; lootDrops.push(new Loot(e.x, e.y, dropType)); }
       enemies.splice(i, 1);
     }
   }
 
-  // Update bullets (player)
+  // bullets update (player)
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
-    b.x += b.vx * dt;
-    b.y += (b.vy || 0) * dt;
-    // removal check offscreen relative to camera
+    b.x += b.vx * dt; b.y += (b.vy || 0) * dt;
+    b.angle = Math.atan2(b.vy || 0, b.vx || 0);
     if (b.x - cameraOffsetX > canvas.width + 200 || (Math.abs(b.vx) < 1 && Math.abs(b.vy || 0) < 1)) bullets.splice(i, 1);
   }
 
-  // Update enemy bullets
+  // enemy bullets
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
     const eb = enemyBullets[i];
-    eb.x += eb.vx * dt; eb.y += (eb.vy || 0) * dt;
+    eb.x += eb.vx * dt; eb.y += (eb.vy || 0) * dt; eb.angle = Math.atan2(eb.vy || 0, eb.vx || 0);
     if (eb.x < state.player.x + state.player.w && eb.x + eb.w > state.player.x && eb.y < state.player.y + state.player.h && eb.y + eb.h > state.player.y) {
       damagePlayer(eb.damage || 1, eb.vx || 0); enemyBullets.splice(i, 1);
-    } else if (eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) {
-      enemyBullets.splice(i, 1);
-    }
+    } else if (eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) enemyBullets.splice(i, 1);
   }
 
-  // Loot pickup
+  // loot pickup
   for (let i = lootDrops.length - 1; i >= 0; i--) {
     const l = lootDrops[i];
     if (state.player.x < l.x + l.w && state.player.x + state.player.w > l.x && state.player.y < l.y + l.h && state.player.y + state.player.h > l.y) {
-      if (l.type === "tech") {
-        const techKeys = Object.keys(TECH_CATALOG);
-        const pick = techKeys[Math.floor(rng() * techKeys.length)];
-        applyTech(pick);
-      } else {
-        const gunKeys = Object.keys(WEAPON_CONFIG);
-        const pick = gunKeys[Math.floor(rng() * gunKeys.length)];
-        state.equippedGun = pick;
-      }
+      if (l.type === "tech") { pickupRandomTech(); } else { const gunKeys = Object.keys(WEAPON_CONFIG); state.equippedGun = gunKeys[Math.floor(rng() * gunKeys.length)]; }
       lootDrops.splice(i, 1);
     }
   }
 
-  // Invuln ticking and HP regen (time-based)
+  // door collision (enter door -> advance floor & regenerate)
+  for (let i = doors.length - 1; i >= 0; i--) {
+    const d = doors[i];
+    if (state.player.x < d.x + d.w && state.player.x + state.player.w > d.x && state.player.y < d.y + d.h && state.player.y + state.player.h > d.y) {
+      state.floor = (state.floor || 0) + 1;
+      pickupRandomTech();
+      reseed(Math.floor(Math.random() * 1e9));
+      resetWorld();
+      break;
+    }
+  }
+
+  // invuln & regen
   if (state.player.invuln > 0) {
     state.player.invuln = Math.max(0, state.player.invuln - dt);
     state.player.color = (Math.floor(state.player.invuln * 6) % 2 === 0) ? "#fff" : state.player.baseColor;
     if (state.player.invuln === 0) state.player.color = state.player.baseColor;
   }
-  if (state.player.regen > 0) {
-    state.player.hp = Math.min(state.player.maxHp, state.player.hp + state.player.regen * dt);
-  }
+  if (state.player.regen > 0) state.player.hp = Math.min(state.player.maxHp, state.player.hp + state.player.regen * dt);
 
-  // Particles update
   updateParticles(dt);
 }
 
-// ---------- Render (single call per animation frame) ----------
+// ---------- Render ----------
 function render() {
   ctx.save();
-  // screen shake
+  // apply screen shake offset
   let shakeOffsetX = 0, shakeOffsetY = 0;
   if (shake.time > 0) {
     const s = shake.intensity * (shake.time / 0.18);
-    shakeOffsetX = (Math.random() * 2 - 1) * s;
-    shakeOffsetY = (Math.random() * 2 - 1) * s;
+    shakeOffsetX = (Math.random() * 2 - 1) * s; shakeOffsetY = (Math.random() * 2 - 1) * s;
   }
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   ctx.translate(Math.floor(shakeOffsetX), Math.floor(shakeOffsetY));
 
-  // draw platforms
+  // draw walls
+  if (ENABLE_WALLS) {
+    ctx.fillStyle = "#222";
+    ctx.fillRect(leftWallX - cameraOffsetX, -2000, 8, 4000);
+    ctx.fillRect(rightWallX - cameraOffsetX, -2000, 8, 4000);
+  }
+
+  // platforms
   for (let plat of platforms) plat.draw();
 
-  // draw enemies
+  // enemies
   for (let e of enemies) e.draw();
 
-  // draw bullets (player)
+  // bullets (player) rotated
   for (let b of bullets) {
-    ctx.fillStyle = b.color; ctx.fillRect(b.x - cameraOffsetX, b.y, b.w, b.h);
+    ctx.save();
+    const bx = b.x - cameraOffsetX; const by = b.y;
+    const cx = bx + b.w / 2; const cy = by + b.h / 2;
+    ctx.translate(cx, cy); ctx.rotate(b.angle || 0);
+    ctx.fillStyle = b.color; ctx.fillRect(-b.w / 2, -b.h / 2, b.w, b.h);
+    ctx.restore();
   }
 
-  // draw enemy bullets
+  // enemy bullets rotated
   for (let eb of enemyBullets) {
-    ctx.fillStyle = eb.color; ctx.fillRect(eb.x - cameraOffsetX, eb.y, eb.w, eb.h);
+    ctx.save();
+    const ex = eb.x - cameraOffsetX; const ey = eb.y;
+    const cx = ex + eb.w / 2; const cy = ey + eb.h / 2;
+    ctx.translate(cx, cy); ctx.rotate(eb.angle || 0);
+    ctx.fillStyle = eb.color; ctx.fillRect(-eb.w / 2, -eb.h / 2, eb.w, eb.h);
+    ctx.restore();
   }
 
-  // draw loot
+  // loot
   for (let l of lootDrops) l.draw();
 
-  // draw player
-  ctx.fillStyle = state.player.color;
-  ctx.fillRect(state.player.x - cameraOffsetX, state.player.y, state.player.w, state.player.h);
+  // doors
+  for (let d of doors) d.draw();
 
-  // particles already drawn in updateParticles (but they need cameraOffset) — they are drawn there
+  // player
+  ctx.fillStyle = state.player.color; ctx.fillRect(state.player.x - cameraOffsetX, state.player.y, state.player.w, state.player.h);
+
+  // particles drawn in updateParticles via render calls (they respect cameraOffset)
 
   // aim indicator
-  ctx.strokeStyle = "rgba(255,255,255,0.25)";
-  ctx.lineWidth = 1;
+  ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1;
   ctx.beginPath();
-  const px = state.player.x + state.player.w / 2 - cameraOffsetX;
-  const py = state.player.y + state.player.h / 2;
-  ctx.moveTo(px, py);
-  ctx.lineTo(mouseX, mouseY);
-  ctx.stroke();
+  const px = state.player.x + state.player.w / 2 - cameraOffsetX, py = state.player.y + state.player.h / 2;
+  ctx.moveTo(px, py); ctx.lineTo(mouseX, mouseY); ctx.stroke();
 
   // HUD
   drawHUD();
 
   ctx.restore();
+
+  // handle auto-fire (once-per-render attempt, actual caps applied in shooter)
+  handleAutoFire();
 }
 
 // ---------- Game loop (fixed timestep driver) ----------
