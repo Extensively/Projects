@@ -1,4 +1,22 @@
-/* game.js — full prototype with editable techs, health/lives, effects */
+/* game.js — fixed-timestep prototype with editable techs, health/lives, effects
+   Converted to a fixed update rate (60 Hz) and separated render/update.
+   Drop this file in place of your game.js.
+*/
+
+// ---------- Config / Physics constants ----------
+const FIXED_HZ = 60;
+const FIXED_DT = 1 / FIXED_HZ; // seconds per update
+let lastFrameTimeMs = performance.now();
+let deltaAccumulator = 0;
+const MAX_ACCUM_SECONDS = 0.25;
+
+const FPS_BASIS = 60; // used to convert legacy per-frame numbers to per-second
+// Tweak these to change feel (converted from previous px/frame values)
+const PLAYER_SPEED = 5 * FPS_BASIS;        // px/sec (was 5 px/frame)
+const JUMP_SPEED = 12 * FPS_BASIS;        // px/sec (was 12 px/frame)
+const GRAVITY = 0.5 * FPS_BASIS * FPS_BASIS; // px/sec^2 (was 0.5 px/frame^2)
+const ENEMY_PATROL_SPEED = 1.5 * FPS_BASIS; // px/sec (was 1.5 px/frame)
+const BULLET_SPEED_SCALE = FPS_BASIS;      // multiply weapon.speed by this to get px/sec
 
 // ---------- Basic canvas / input / settings ----------
 const canvas = document.getElementById("gameCanvas");
@@ -11,7 +29,6 @@ const settingsBody = document.getElementById("settingsBody");
 const regenSeedBtn = document.getElementById("regenSeed");
 const livesDisplay = document.getElementById("livesDisplay");
 
-const gravity = 0.5;
 let keys = {};
 let cameraOffsetX = 0;
 let shake = { intensity: 0, time: 0 };
@@ -40,9 +57,9 @@ function reseed(newSeed) { seed = newSeed | 0; rng = mulberry32(seed); seedDispl
 const GAME_CONFIG = {
   playerBaseMaxHp: 10,
   playerBaseLives: 3,
-  playerInvulnFrames: 60,
-  playerHpRegenPerSec: 0, // base regen; tech can increase
-  respawnInvuln: 120,
+  playerInvulnSec: 1.0,       // seconds
+  playerHpRegenPerSec: 0,     // base regen; tech can increase
+  respawnInvulnSec: 2.0,      // seconds
   screenShakeIntensityOnHit: 6,
   particleCountOnHit: 12
 };
@@ -53,7 +70,7 @@ const WEAPON_CONFIG = {
   spread: { speed: 7, color: "#f0f", damage: 1, spread: true }
 };
 
-// Editable tech catalogue — easy to extend or extract into a JSON file later
+// Editable tech catalogue — easy to extend later
 const TECH_CATALOG = {
   hp_boost: {
     id: "hp_boost",
@@ -66,15 +83,15 @@ const TECH_CATALOG = {
     id: "regen_boost",
     name: "HP Regen",
     description: "Restore 1 HP every 2 seconds",
-    apply(state) { state.player.regen += 0.5; }, // +0.5 per sec => 1 every 2s
+    apply(state) { state.player.regen += 0.5; },
     revert(state) { state.player.regen = Math.max(0, state.player.regen - 0.5); }
   },
   invuln_ext: {
     id: "invuln_ext",
     name: "Extended Invuln",
-    description: "Increase invulnerability frames after hit",
-    apply(state) { state.player.invulnFrames += 40; },
-    revert(state) { state.player.invulnFrames = Math.max(0, state.player.invulnFrames - 40); }
+    description: "Increase invulnerability duration",
+    apply(state) { state.player.invulnFrames += 40; state.player.invulnSec += 0.66; },
+    revert(state) { state.player.invulnFrames = Math.max(0, state.player.invulnFrames - 40); state.player.invulnSec = Math.max(0.1, state.player.invulnSec - 0.66); }
   },
   damage_amp: {
     id: "damage_amp",
@@ -99,15 +116,17 @@ const state = {
     baseColor: "#0f0", color: "#0f0",
     maxHp: GAME_CONFIG.playerBaseMaxHp,
     hp: GAME_CONFIG.playerBaseMaxHp,
-    invuln: 0, invulnFrames: GAME_CONFIG.playerInvulnFrames,
+    invuln: 0, invulnFrames: Math.round(GAME_CONFIG.playerInvulnSec * FIXED_HZ),
+    invulnSec: GAME_CONFIG.playerBaseMaxHp ? GAME_CONFIG.playerBaseMaxHp*0 : GAME_CONFIG.playerBaseMaxHp*0 + 1.0, // fallback field (not used much)
     regen: GAME_CONFIG.playerHpRegenPerSec, // HP per second
     damageMult: 1,
     lives: GAME_CONFIG.playerBaseLives,
-    checkpoint: { x: 100, y: 100 }
+    checkpoint: { x: 100, y: 100 },
+    jumpCount: 0,
+    invulnFrameCounter: 0
   },
   techs: {}, // applied tech IDs => true
-  equippedGun: "basic",
-  weaponKeys: Object.keys(WEAPON_CONFIG)
+  equippedGun: "basic"
 };
 
 // particle pool for hits/explosion
@@ -117,45 +136,27 @@ for (let i = 0; i < 120; i++) PARTICLE_POOL.push({ active: false });
 // ---------- Input ----------
 document.addEventListener("keydown", e => keys[e.code] = true);
 document.addEventListener("keyup", e => keys[e.code] = false);
-canvas.addEventListener("click", shootBullet);
 
-let mouseX = 0;
-let mouseY = 0;
-let mouseDown = false;
-
+// mouse aiming
+let mouseX = 0, mouseY = 0, mouseDown = false;
 canvas.addEventListener("mousemove", (e) => {
   const rect = canvas.getBoundingClientRect();
   mouseX = e.clientX - rect.left;
   mouseY = e.clientY - rect.top;
 });
-
-canvas.addEventListener("mousedown", (e) => {
-  mouseDown = true;
-  // optional: immediate shot on mousedown
-  shootBulletAtMouse();
-});
-
+canvas.addEventListener("mousedown", (e) => { mouseDown = true; shootBulletAtMouse(); });
 canvas.addEventListener("mouseup", () => { mouseDown = false; });
-
-// optional: support touch
 canvas.addEventListener("touchstart", (e) => {
-  const t = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  mouseX = t.clientX - rect.left;
-  mouseY = t.clientY - rect.top;
-  mouseDown = true;
-  shootBulletAtMouse();
+  const t = e.touches[0]; const rect = canvas.getBoundingClientRect();
+  mouseX = t.clientX - rect.left; mouseY = t.clientY - rect.top; mouseDown = true; shootBulletAtMouse();
 });
 canvas.addEventListener("touchmove", (e) => {
-  const t = e.touches[0];
-  const rect = canvas.getBoundingClientRect();
-  mouseX = t.clientX - rect.left;
-  mouseY = t.clientY - rect.top;
+  const t = e.touches[0]; const rect = canvas.getBoundingClientRect();
+  mouseX = t.clientX - rect.left; mouseY = t.clientY - rect.top;
 });
 canvas.addEventListener("touchend", () => { mouseDown = false; });
 
 // ---------- Entities: Platform, Enemy, Loot ----------
-
 class Platform {
   constructor(x, y, w, h) { this.x = x; this.y = y; this.w = w; this.h = h; this.color = "#444"; }
   draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h); }
@@ -167,11 +168,11 @@ class Enemy {
     this.type = type; this.behavior = behavior;
     this.baseColor = type === "circle" ? "#e55" : "#ffdf55";
     this.color = this.baseColor;
-    this.vx = behavior === "patrol" ? (rng() < 0.5 ? -1.5 : 1.5) : 0;
+    this.vx = behavior === "patrol" ? (rng() < 0.5 ? -ENEMY_PATROL_SPEED : ENEMY_PATROL_SPEED) : 0;
     this.vy = 0; this.maxHp = 6; this.hp = this.maxHp; this.onGround = false;
-    this.jumpCooldown = Math.floor(rng() * 60);
-    this.shootCooldown = Math.floor(rng() * 120) + 60;
-    this.hitTimer = 0;
+    this.jumpCooldown = rng() * 1.0; // seconds
+    this.shootCooldown = rng() * 2.0 + 1.0; // seconds
+    this.hitTimer = 0; // seconds
   }
   draw() {
     ctx.fillStyle = this.color;
@@ -198,27 +199,30 @@ class Enemy {
   }
   applyDamage(dmg, sourceVx = 0) {
     this.hp -= dmg;
-    this.hitTimer = 12;
+    this.hitTimer = 0.2; // seconds flash
     this.color = "#fff";
     this.vx += (sourceVx || 0) * 0.6;
     spawnParticles(this.x + this.w/2, this.y + this.h/2, GAME_CONFIG.particleCountOnHit);
-    shakeScreen(1.6);
+    shakeScreen(1.6, 0.2);
   }
-  update() {
-    if (this.hitTimer > 0) { this.hitTimer--; if (this.hitTimer === 0) this.color = this.baseColor; }
+  update(dt) {
+    if (this.hitTimer > 0) {
+      this.hitTimer = Math.max(0, this.hitTimer - dt);
+      if (this.hitTimer === 0) this.color = this.baseColor;
+    }
     if (this.behavior === "jump") {
-      if (this.jumpCooldown <= 0 && this.onGround) { this.vy = -8; this.jumpCooldown = 90 + Math.floor(rng() * 60); }
-      if (this.jumpCooldown > 0) this.jumpCooldown--;
+      if (this.jumpCooldown <= 0 && this.onGround) { this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng() * 1.0; }
+      if (this.jumpCooldown > 0) this.jumpCooldown = Math.max(0, this.jumpCooldown - dt);
     }
     if (this.behavior === "shooter") {
       if (this.shootCooldown <= 0) {
-        enemyBullets.push({ x: this.x + this.w/2, y: this.y + this.h/2, vx: (state.player.x < this.x) ? -4 : 4, w: 6, h: 6, color: "#f80", damage: 1 });
-        this.shootCooldown = 120 + Math.floor(rng() * 90);
-      } else this.shootCooldown--;
+        enemyBullets.push({ x: this.x + this.w/2, y: this.y + this.h/2, vx: (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS, vy: 0, w: 6, h: 6, color: "#f80", damage: 1 });
+        this.shootCooldown = 2.0 + rng() * 1.5;
+      } else this.shootCooldown = Math.max(0, this.shootCooldown - dt);
     }
-    this.vy += gravity;
-    this.x += this.vx;
-    this.y += this.vy;
+    this.vy += GRAVITY * dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
   }
 }
 
@@ -233,7 +237,7 @@ let platforms = [];
 let terrainEndX = 0;
 let enemies = [];
 let lootDrops = [];
-let bullets = [];
+let bullets = [];       // each bullet: { x, y, vx(px/s), vy(px/s), w, h, color, damage }
 let enemyBullets = [];
 
 // ---------- Utility: particles, screen shake ----------
@@ -244,25 +248,25 @@ function spawnParticles(x, y, count) {
       p.active = true;
       p.x = x; p.y = y;
       const ang = rng() * Math.PI * 2;
-      const spd = 1 + rng() * 3;
+      const spd = 40 + rng() * 80; // px/sec
       p.vx = Math.cos(ang) * spd;
-      p.vy = Math.sin(ang) * spd - 1;
-      p.life = 20 + Math.floor(rng() * 20);
+      p.vy = Math.sin(ang) * spd - 60;
+      p.life = 0.2 + rng() * 0.6; // seconds
       p.color = `hsl(${Math.floor(rng() * 60)},80%,60%)`;
       count--;
     }
   }
 }
-function updateParticles() {
+function updateParticles(dt) {
   for (let p of PARTICLE_POOL) {
     if (!p.active) continue;
-    p.x += p.vx; p.y += p.vy; p.vy += 0.12;
-    p.life--;
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 900 * dt; // gravity scale
+    p.life -= dt;
     if (p.life <= 0) { p.active = false; continue; }
     ctx.fillStyle = p.color; ctx.fillRect(p.x - cameraOffsetX, p.y, 2, 2);
   }
 }
-function shakeScreen(amount = 2, time = 12) { shake.intensity = Math.max(shake.intensity, amount); shake.time = Math.max(shake.time, time); }
+function shakeScreen(amount = 2, time = 0.18) { shake.intensity = Math.max(shake.intensity, amount); shake.time = Math.max(shake.time, time); }
 
 // ---------- Player helpers: damage, respawn, apply tech ----------
 function applyTech(techId) {
@@ -280,19 +284,18 @@ function pickupRandomTech() {
 function damagePlayer(amount, sourceVx = 0) {
   if (state.player.invuln > 0) return;
   state.player.hp -= amount;
-  state.player.invuln = state.player.invulnFrames;
+  state.player.invuln = GAME_CONFIG.playerInvulnSec; // seconds
   state.player.color = "#fff";
-  state.player.vx += sourceVx > 0 ? 4 : -4;
-  shakeScreen(GAME_CONFIG.screenShakeIntensityOnHit, 14);
+  state.player.vx += sourceVx > 0 ? 200 : -200; // px/sec knockback
+  shakeScreen(GAME_CONFIG.screenShakeIntensityOnHit, 0.25);
   spawnParticles(state.player.x + state.player.w/2, state.player.y + state.player.h/2, 8);
   if (state.player.hp <= 0) handlePlayerDeath();
 }
 function handlePlayerDeath() {
   state.player.lives = Math.max(0, state.player.lives - 1);
   if (state.player.lives <= 0) {
-    // full reset (could show game over screen)
+    // full reset (simple behavior)
     state.player.lives = GAME_CONFIG.playerBaseLives;
-    // clear some world state
     reseed(Math.floor(Math.random() * 1e9));
   }
   // respawn at checkpoint
@@ -300,7 +303,7 @@ function handlePlayerDeath() {
   state.player.x = state.player.checkpoint.x;
   state.player.y = state.player.checkpoint.y;
   state.player.vx = 0; state.player.vy = 0;
-  state.player.invuln = GAME_CONFIG.respawnInvuln;
+  state.player.invuln = GAME_CONFIG.respawnInvulnSec;
   updateHUD();
 }
 
@@ -351,19 +354,17 @@ function resetWorld() {
   state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
   state.player.hp = state.player.maxHp;
   state.player.invuln = 0;
-  state.player.invulnFrames = GAME_CONFIG.playerInvulnFrames;
+  state.player.invulnFrames = Math.round(GAME_CONFIG.playerInvulnSec * FIXED_HZ);
   state.player.regen = GAME_CONFIG.playerHpRegenPerSec;
   state.player.damageMult = 1;
   state.player.lives = GAME_CONFIG.playerBaseLives;
   state.techs = {};
-  // optionally give one starter tech for testing
-  // applyTech("hp_boost");
   updateHUD();
 }
 reseed(seed);
 resetWorld();
 
-// ---------- Shooting & weapon switching ----------
+// ---------- Shooting & weapon switching (mouse-aimed) ----------
 function shootBulletAtMouse() {
   const gun = WEAPON_CONFIG[state.equippedGun] || WEAPON_CONFIG.basic;
   const originX = state.player.x + state.player.w / 2;
@@ -379,14 +380,12 @@ function shootBulletAtMouse() {
   const dist = Math.hypot(dx, dy) || 1;
   dx /= dist; dy /= dist;
 
-  const baseSpeed = gun.speed || 8;
+  const baseSpeed = (gun.speed || 8) * BULLET_SPEED_SCALE; // px/sec
   const damage = Math.max(1, Math.round((gun.damage || 1) * state.player.damageMult));
 
-  // helper to push a bullet with a direction and optional additional angle (radians)
   function pushBulletWithAngle(angleOffset, speedMultiplier = 1) {
     const cos = Math.cos(angleOffset);
     const sin = Math.sin(angleOffset);
-    // rotate (dx,dy) by small angle offset
     const rx = dx * cos - dy * sin;
     const ry = dx * sin + dy * cos;
     bullets.push({
@@ -399,7 +398,6 @@ function shootBulletAtMouse() {
   }
 
   if (gun.spread) {
-    // spread: three bullets at -10°, 0°, +10°
     const spreadAngle = 10 * (Math.PI / 180);
     pushBulletWithAngle(-spreadAngle, 1);
     pushBulletWithAngle(0, 1);
@@ -408,12 +406,24 @@ function shootBulletAtMouse() {
     pushBulletWithAngle(0, 1);
   }
 }
+
+document.addEventListener("keydown", (e) => {
+  if (e.code === "KeyQ") {
+    const keys = Object.keys(WEAPON_CONFIG);
+    let idx = keys.indexOf(state.equippedGun);
+    idx = (idx + 1) % keys.length;
+    state.equippedGun = keys[idx];
+  }
+  if (e.code === "ShiftLeft" && state.techs["dash"]) {
+    state.player.vx += (keys["ArrowRight"] || keys["KeyD"]) ? 8 * FPS_BASIS : (keys["ArrowLeft"] || keys["KeyA"]) ? -8 * FPS_BASIS : (state.player.vx > 0 ? 8 * FPS_BASIS : -8 * FPS_BASIS);
+  }
+});
+
 // ---------- HUD ----------
 function updateHUD() { livesDisplay.textContent = state.player.lives; }
 function drawHUD() {
-  // HUD background
   ctx.fillStyle = "rgba(0,0,0,0.45)";
-  ctx.fillRect(8, 8, 320, 96);
+  ctx.fillRect(8, 8, 320, 120);
   ctx.fillStyle = "#fff";
   ctx.font = "14px system-ui, Arial";
   ctx.fillText("Weapon: " + state.equippedGun, 16, 28);
@@ -439,61 +449,59 @@ function drawHUD() {
   ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX + 6, barY + 10);
   ctx.fillText(`Lives: ${state.player.lives}`, barX + 120, barY + 10);
 
-  // Debug: enemy count
   ctx.fillStyle = "#ffd";
   ctx.fillText("Enemies: " + enemies.length, 16, 140);
 }
 
-// ---------- Game loop ----------
-function gameLoop() {
-  // screen shake calc
-  let shakeOffsetX = 0, shakeOffsetY = 0;
+// ---------- Physics update (fixed timestep) ----------
+function updatePhysics(dt) {
+  // dt in seconds
+  // Screen shake timer
   if (shake.time > 0) {
-    shake.time--;
-    const s = shake.intensity * (shake.time / 20);
-    shakeOffsetX = (Math.random() * 2 - 1) * s;
-    shakeOffsetY = (Math.random() * 2 - 1) * s;
-  } else { shake.intensity = 0; }
+    shake.time = Math.max(0, shake.time - dt);
+  } else {
+    shake.intensity = 0;
+  }
 
-  ctx.save();
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.translate(Math.floor(shakeOffsetX), Math.floor(shakeOffsetY));
-
-  // Player movement
+  // Player movement (vx is px/sec)
   state.player.vx = 0;
-  if (keys["ArrowLeft"] || keys["KeyA"]) state.player.vx = -5;
-  if (keys["ArrowRight"] || keys["KeyD"]) state.player.vx = 5;
+  if (keys["ArrowLeft"] || keys["KeyA"]) state.player.vx = -PLAYER_SPEED;
+  if (keys["ArrowRight"] || keys["KeyD"]) state.player.vx = PLAYER_SPEED;
 
-  // Jump input (supports double jump if tech applied)
+  // Jump input (instant velocity set)
   if ((keys["Space"] || keys["KeyW"]) && (state.player.onGround || (state.techs["double_jump"] && state.player.jumpCount < 2))) {
     if (state.player.onGround) {
-      state.player.vy = -12; state.player.onGround = false; state.player.jumpCount = 1;
+      state.player.vy = -JUMP_SPEED; state.player.onGround = false; state.player.jumpCount = 1;
     } else if (state.techs["double_jump"] && state.player.jumpCount === 1) {
-      state.player.vy = -11; state.player.jumpCount = 2;
+      state.player.vy = -JUMP_SPEED * 0.92; state.player.jumpCount = 2;
     }
     keys["Space"] = false; keys["KeyW"] = false;
   }
 
-  // Integrate physics for player
-  state.player.vy += gravity;
-  state.player.x += state.player.vx;
-  state.player.y += state.player.vy;
+  // Apply physics
+  state.player.vy += GRAVITY * dt;
+  state.player.x += state.player.vx * dt;
+  state.player.y += state.player.vy * dt;
 
-  // Camera follows player
+  // camera follows player (no smoothing)
   cameraOffsetX = state.player.x - canvas.width / 2;
 
-  // Collision for player
+  // Player collision with platforms
   state.player.onGround = false;
   for (let plat of platforms) {
-    const willCollide = state.player.x < plat.x + plat.w && state.player.x + state.player.w > plat.x &&
-                        state.player.y + state.player.h <= plat.y + 10 && state.player.y + state.player.h + state.player.vy >= plat.y;
+    const willCollide = state.player.x < plat.x + plat.w &&
+                        state.player.x + state.player.w > plat.x &&
+                        state.player.y + state.player.h <= plat.y + 10 &&
+                        state.player.y + state.player.h + state.player.vy * dt >= plat.y;
     if (willCollide) {
-      state.player.vy = 0; state.player.y = plat.y - state.player.h; state.player.onGround = true; state.player.jumpCount = 0;
+      state.player.vy = 0;
+      state.player.y = plat.y - state.player.h;
+      state.player.onGround = true;
+      state.player.jumpCount = 0;
     }
-    plat.draw();
   }
 
-  // Expand terrain
+  // Terrain expand (deterministic)
   if (state.player.x + canvas.width > terrainEndX - 400) {
     const newP = generatePlatforms(terrainEndX);
     platforms.push(...newP);
@@ -501,15 +509,23 @@ function gameLoop() {
     terrainEndX = computeTerrainEnd();
   }
 
-  // Update enemies (platform collision for enemies included)
+  // Update enemies
   for (let i = enemies.length - 1; i >= 0; i--) {
     const e = enemies[i];
     e.onGround = false;
     for (let plat of platforms) {
-      const touching = e.x < plat.x + plat.w && e.x + e.w > plat.x &&
-                       e.y + e.h <= plat.y + 12 && e.y + e.h + e.vy >= plat.y;
-      if (touching) { e.vy = 0; e.y = plat.y - e.h; e.onGround = true; }
+      const touching = e.x < plat.x + plat.w &&
+                       e.x + e.w > plat.x &&
+                       e.y + e.h <= plat.y + 12 &&
+                       e.y + e.h + e.vy * dt >= plat.y;
+      if (touching) {
+        e.vy = 0;
+        e.y = plat.y - e.h;
+        e.onGround = true;
+      }
     }
+
+    // Patrol edge detection (uses world coords, e.vx in px/sec)
     if (e.behavior === "patrol") {
       const aheadX = e.x + (e.vx > 0 ? e.w + 8 : -8);
       let hasGroundAhead = false;
@@ -518,20 +534,24 @@ function gameLoop() {
       }
       if (!hasGroundAhead) e.vx *= -1;
     }
-    e.update();
-    // bullet collisions
+
+    e.update(dt);
+
+    // Bullet collisions (bullets are px/sec motion already)
     for (let b of bullets) {
       if (b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y) {
         e.applyDamage(b.damage || 1, Math.sign(b.vx || 1));
         b.vx = 0;
+        b.vy = 0;
       }
     }
+
     // player contact damage
     if (state.player.x < e.x + e.w && state.player.x + state.player.w > e.x && state.player.y < e.y + e.h && state.player.y + state.player.h > e.y) {
       damagePlayer(1, e.vx || 0);
-      state.player.vy = -6;
+      state.player.vy = -JUMP_SPEED * 0.5;
     }
-    e.draw();
+
     if (e.hp <= 0) {
       if (toggleLoot.checked) {
         const dropType = rng() < 0.5 ? "tech" : "gun";
@@ -541,36 +561,35 @@ function gameLoop() {
     }
   }
 
-  // Update bullets
+  // Update bullets (player)
   for (let i = bullets.length - 1; i >= 0; i--) {
     const b = bullets[i];
-    b.x += b.vx; b.y += b.vy || 0;
-    ctx.fillStyle = b.color; ctx.fillRect(b.x - cameraOffsetX, b.y, b.w, b.h);
-    if (b.x - cameraOffsetX > canvas.width + 200 || b.vx === 0) bullets.splice(i, 1);
+    b.x += b.vx * dt;
+    b.y += (b.vy || 0) * dt;
+    // removal check offscreen relative to camera
+    if (b.x - cameraOffsetX > canvas.width + 200 || (Math.abs(b.vx) < 1 && Math.abs(b.vy || 0) < 1)) bullets.splice(i, 1);
   }
 
-  // Enemy bullets
+  // Update enemy bullets
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
     const eb = enemyBullets[i];
-    eb.x += eb.vx; eb.y += eb.vy || 0;
-    ctx.fillStyle = eb.color; ctx.fillRect(eb.x - cameraOffsetX, eb.y, eb.w, eb.h);
+    eb.x += eb.vx * dt; eb.y += (eb.vy || 0) * dt;
     if (eb.x < state.player.x + state.player.w && eb.x + eb.w > state.player.x && eb.y < state.player.y + state.player.h && eb.y + eb.h > state.player.y) {
       damagePlayer(eb.damage || 1, eb.vx || 0); enemyBullets.splice(i, 1);
-    } else if (eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) enemyBullets.splice(i, 1);
+    } else if (eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) {
+      enemyBullets.splice(i, 1);
+    }
   }
 
-  // Loot draw & pickup
+  // Loot pickup
   for (let i = lootDrops.length - 1; i >= 0; i--) {
     const l = lootDrops[i];
-    l.draw();
     if (state.player.x < l.x + l.w && state.player.x + state.player.w > l.x && state.player.y < l.y + l.h && state.player.y + state.player.h > l.y) {
       if (l.type === "tech") {
-        // pick a random tech (or make deterministic)
         const techKeys = Object.keys(TECH_CATALOG);
         const pick = techKeys[Math.floor(rng() * techKeys.length)];
         applyTech(pick);
       } else {
-        // give a random weapon
         const gunKeys = Object.keys(WEAPON_CONFIG);
         const pick = gunKeys[Math.floor(rng() * gunKeys.length)];
         state.equippedGun = pick;
@@ -579,26 +598,59 @@ function gameLoop() {
     }
   }
 
-  // Draw player (with invuln flash)
-  // invuln ticking and regen
+  // Invuln ticking and HP regen (time-based)
   if (state.player.invuln > 0) {
-    state.player.invuln--;
-    state.player.color = (Math.floor(state.player.invuln / 6) % 2 === 0) ? "#fff" : state.player.baseColor;
+    state.player.invuln = Math.max(0, state.player.invuln - dt);
+    state.player.color = (Math.floor(state.player.invuln * 6) % 2 === 0) ? "#fff" : state.player.baseColor;
     if (state.player.invuln === 0) state.player.color = state.player.baseColor;
   }
-  // HP regen
   if (state.player.regen > 0) {
-    state.player.hp = Math.min(state.player.maxHp, state.player.hp + state.player.regen * (1/60));
+    state.player.hp = Math.min(state.player.maxHp, state.player.hp + state.player.regen * dt);
   }
 
-  // Player draw
+  // Particles update
+  updateParticles(dt);
+}
+
+// ---------- Render (single call per animation frame) ----------
+function render() {
+  ctx.save();
+  // screen shake
+  let shakeOffsetX = 0, shakeOffsetY = 0;
+  if (shake.time > 0) {
+    const s = shake.intensity * (shake.time / 0.18);
+    shakeOffsetX = (Math.random() * 2 - 1) * s;
+    shakeOffsetY = (Math.random() * 2 - 1) * s;
+  }
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(Math.floor(shakeOffsetX), Math.floor(shakeOffsetY));
+
+  // draw platforms
+  for (let plat of platforms) plat.draw();
+
+  // draw enemies
+  for (let e of enemies) e.draw();
+
+  // draw bullets (player)
+  for (let b of bullets) {
+    ctx.fillStyle = b.color; ctx.fillRect(b.x - cameraOffsetX, b.y, b.w, b.h);
+  }
+
+  // draw enemy bullets
+  for (let eb of enemyBullets) {
+    ctx.fillStyle = eb.color; ctx.fillRect(eb.x - cameraOffsetX, eb.y, eb.w, eb.h);
+  }
+
+  // draw loot
+  for (let l of lootDrops) l.draw();
+
+  // draw player
   ctx.fillStyle = state.player.color;
   ctx.fillRect(state.player.x - cameraOffsetX, state.player.y, state.player.w, state.player.h);
 
-  // Particles
-  updateParticles();
-    
-  // --- draw aim indicator
+  // particles already drawn in updateParticles (but they need cameraOffset) — they are drawn there
+
+  // aim indicator
   ctx.strokeStyle = "rgba(255,255,255,0.25)";
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -608,11 +660,26 @@ function gameLoop() {
   ctx.lineTo(mouseX, mouseY);
   ctx.stroke();
 
-  // HUD & finish frame
+  // HUD
   drawHUD();
-  ctx.restore();
 
-  requestAnimationFrame(gameLoop);
+  ctx.restore();
+}
+
+// ---------- Game loop (fixed timestep driver) ----------
+function run(nowMs) {
+  requestAnimationFrame(run);
+  let elapsedSeconds = (nowMs - lastFrameTimeMs) / 1000;
+  lastFrameTimeMs = nowMs;
+  if (elapsedSeconds > MAX_ACCUM_SECONDS) elapsedSeconds = MAX_ACCUM_SECONDS;
+  deltaAccumulator += elapsedSeconds;
+
+  while (deltaAccumulator >= FIXED_DT) {
+    updatePhysics(FIXED_DT);
+    deltaAccumulator -= FIXED_DT;
+  }
+
+  render();
 }
 
 // ---------- Helpers ----------
@@ -620,4 +687,5 @@ function computeTerrainEnd() { let maxX = 0; for (let p of platforms) maxX = Mat
 
 // ---------- Start ----------
 updateHUD();
-gameLoop();
+lastFrameTimeMs = performance.now();
+requestAnimationFrame(run);
