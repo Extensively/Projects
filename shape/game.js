@@ -161,7 +161,8 @@ let enemyBullets = [];
 const weapons = {
   basic: { speed: 8, color: "#fff", damage: 1 },
   laser: { speed: 12, color: "#0ff", damage: 2 },
-  spread: { speed: 7, color: "#f0f", damage: 1, spread: true }
+  shotgun: { speed: 7, color: "#f0f", damage: 1, spread: true },
+  howitzer: { speed: 20, color: "#ff0", damage: 1, spread: true }
 };
 const weaponKeys = Object.keys(weapons);
 let weaponIndex = 0;
@@ -470,7 +471,6 @@ function drawHUD() {
   ctx.fillStyle = "#ffd";
   ctx.fillText("Enemies: " + enemies.length, 180, 28); // debug counter
 }
-
 
 // world reset helper (used by regen)
 function resetWorldAndKeepSeed() {
