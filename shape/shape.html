@@ -4,7 +4,7 @@
   <link rel="icon" type="image/gif" href="https://extensively.github.io/Projects/img/roach.gif">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shapez V0.41.67</title>
+  <title>Shapez V0.41.670</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body style="color: #FFFFFF;">
@@ -59,6 +59,29 @@
         <label><input type="checkbox" id="toggleLoot" checked /> Loot Drops</label>
         <h3>Game</h3>
         <div>Lives: <span id="livesDisplay">-</span></div>
+        <h3>Platform Generation</h3>
+          <label>Chunk size (platforms per batch)
+            <input id="gen_chunkSize" type="number" min="1" max="50" value="10" />
+          </label>
+          <label>Spacing X (px)
+            <input id="gen_spacingX" type="number" min="32" max="256" value="96" />
+          </label>
+          <label>Platform width (px)
+            <input id="gen_platWidth" type="number" min="24" max="256" value="88" />
+          </label>
+          <label>Height base (px)
+            <input id="gen_baseY" type="number" min="100" max="600" value="380" />
+          </label>
+          <label>Height variance (px)
+            <input id="gen_varY" type="number" min="0" max="400" value="180" />
+          </label>
+          <label>Horizontal jitter (px)
+            <input id="gen_jitterX" type="number" min="0" max="96" value="48" />
+          </label>
+          <label>Cluster density (0-1)
+            <input id="gen_cluster" type="number" min="0" max="1" step="0.05" value="0.0" />
+          </label>
+
         <h3>Debug</h3>
         <button id="regenSeed">Regenerate Seed</button>
       </div>

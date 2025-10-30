@@ -37,6 +37,32 @@ const expansionAmountInput = document.getElementById("expansionAmount");
 const wallDistanceInput = document.getElementById("wallDistance");
 const infiniteWallsCheckbox = document.getElementById("infiniteWalls");
 const attackRateInput = document.getElementById("attackRateInput");
+// generation tunables (defaults match previous behavior)
+const genChunkSizeInput = document.getElementById("gen_chunkSize");
+const genSpacingXInput = document.getElementById("gen_spacingX");
+const genPlatWidthInput = document.getElementById("gen_platWidth");
+const genBaseYInput = document.getElementById("gen_baseY");
+const genVarYInput = document.getElementById("gen_varY");
+const genJitterXInput = document.getElementById("gen_jitterX");
+const genClusterInput = document.getElementById("gen_cluster");
+
+// runtime params (use DOM values if present, else sensible defaults)
+let GEN_CHUNK_SIZE = genChunkSizeInput ? Math.max(1, Number(genChunkSizeInput.value)) : 10;
+let GEN_SPACING_X  = genSpacingXInput ? Math.max(32, Number(genSpacingXInput.value)) : 96;
+let GEN_PLAT_W     = genPlatWidthInput ? Math.max(24, Number(genPlatWidthInput.value)) : 88;
+let GEN_BASE_Y     = genBaseYInput ? Math.max(100, Number(genBaseYInput.value)) : 380;
+let GEN_VAR_Y      = genVarYInput ? Math.max(0, Number(genVarYInput.value)) : 180;
+let GEN_JITTER_X   = genJitterXInput ? Math.max(0, Number(genJitterXInput.value)) : 48;
+let GEN_CLUSTER    = genClusterInput ? Math.min(1, Math.max(0, Number(genClusterInput.value))) : 0.0;
+
+// bind live updates
+if (genChunkSizeInput) genChunkSizeInput.addEventListener("change", () => { GEN_CHUNK_SIZE = Math.max(1, Number(genChunkSizeInput.value)); });
+if (genSpacingXInput)  genSpacingXInput.addEventListener("change", () => { GEN_SPACING_X = Math.max(1, Number(genSpacingXInput.value)); });
+if (genPlatWidthInput) genPlatWidthInput.addEventListener("change", () => { GEN_PLAT_W = Math.max(1, Number(genPlatWidthInput.value)); });
+if (genBaseYInput)     genBaseYInput.addEventListener("change", () => { GEN_BASE_Y = Math.max(0, Number(genBaseYInput.value)); });
+if (genVarYInput)      genVarYInput.addEventListener("change", () => { GEN_VAR_Y = Math.max(0, Number(genVarYInput.value)); });
+if (genJitterXInput)   genJitterXInput.addEventListener("change", () => { GEN_JITTER_X = Math.max(0, Number(genJitterXInput.value)); });
+if (genClusterInput)   genClusterInput.addEventListener("change", () => { GEN_CLUSTER = Math.min(1, Math.max(0, Number(genClusterInput.value))); });
 
 const doorSpawnInput = document.getElementById("doorSpawnRate");
 let DOOR_SPAWN_CHANCE = doorSpawnInput ? Math.max(0, Math.min(1, Number(doorSpawnInput.value))) : 0.12;
@@ -208,11 +234,32 @@ function handlePlayerDeath(){
 }
 
 // ---------- Generation ----------
-function generatePlatforms(startX = 0, count = WORLD_EXPANSION_CHUNKS){
+// generatePlatforms(startX, count) — respects live tuning vars
+function generatePlatforms(startX = 0, count = GEN_CHUNK_SIZE) {
   const ret = [];
-  for(let i=0;i<count;i++){ const x = startX + i*96 + Math.floor(rng()*48); const y = 380 + Math.floor(rng()*180); ret.push(new Platform(x,y,88,18)); }
+  let x = startX;
+  for (let i = 0; i < count; i++) {
+    // spacing and jitter
+    const baseSpacing = GEN_SPACING_X;
+    const jitter = Math.floor((rng() * 2 - 1) * GEN_JITTER_X);
+    x = startX + i * baseSpacing + jitter;
+
+    // clustering: occasionally reduce spacing to create clusters
+    if (GEN_CLUSTER > 0 && rng() < GEN_CLUSTER) {
+      x = (i > 0) ? (ret[i-1].x + Math.floor(rng() * (baseSpacing / 2))) : x;
+    }
+
+    // height determined by base + variance
+    const y = GEN_BASE_Y + Math.floor(rng() * GEN_VAR_Y);
+
+    // platform width from setting (use GEN_PLAT_W)
+    const w = GEN_PLAT_W;
+
+    ret.push(new Platform(x, y, w, 18));
+  }
   return ret;
 }
+
 function spawnEnemiesOn(platformArray, preferVisible=false){
   if(!toggleSpawn || !toggleSpawn.checked) return;
   for(let plat of platformArray){
@@ -244,37 +291,57 @@ function spawnDoorsOn(platformArray, guarantee=false){
 
 // ---------- Reset world ----------
 function computeTerrainEnd(){ let maxX=0; for(let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
-function resetWorld(){
+function resetWorld() {
   rng = mulberry32(seed);
   platforms = [floor];
   const initial = generatePlatforms(0, WORLD_EXPANSION_CHUNKS);
   platforms.push(...initial);
-  enemies = []; lootDrops = []; bullets = []; enemyBullets = []; doors = [];
+
+  enemies = [];
+  lootDrops = [];
+  bullets = [];
+  enemyBullets = [];
+  doors = [];
+
+  // world extents based on initial platforms
   worldLeftX = initial[0].x - 400;
-  worldRightX = initial[initial.length-1].x + 400;
+  worldRightX = initial[initial.length - 1].x + 400;
   terrainEndX = computeTerrainEnd();
+
   updateWalls();
+
+  // spawn enemies on initial platforms (visible area)
   spawnEnemiesOn(initial, true);
-  spawnDoorsOn(initial, true);
-  // guarantee a door at one of the walls (prefer right if player starts toward right)
+
+  // spawn probabilistic doors on platforms (do not force one at spawn)
+  spawnDoorsOn(initial, false);
+
+  // Guarantee doors at both walls (if walls enabled)
   if (ENABLE_WALLS) {
-    const placeAtRight = rng() < 0.5;
-    if (placeAtRight) {
-      const doorX = rightWallX - rightWallHalf - 48 - 8; // place door flush inside wall area to the left
-      const doorY = canvas.height - 40 - 72 - 8; // place on ground level above floor (adjust if you use platform heights)
-      doors.push(new Door(doorX, doorY));
-    } else {
-      const doorX = leftWallX + leftWallHalf + 8; // flush inside wall area to the right
-      const doorY = canvas.height - 40 - 72 - 8;
-      doors.push(new Door(doorX, doorY));
-    }
-  } else {
-    // fallback: keep guaranteed door on a platform (existing behavior)
-    spawnDoorsOn(initial, true);
+    // left wall door: place just inside the wall, slightly above floor
+    const leftDoorX = leftWallX + leftWallHalf + 8; // flush inside wall to the right
+    const leftDoorY = canvas.height - 40 - 72 - 8; // above floor; adjust if your floor Y differs
+    doors.push(new Door(leftDoorX, leftDoorY));
+
+    // right wall door: place just inside the wall, slightly above floor
+    const rightDoorX = rightWallX - rightWallHalf - 48 - 8; // flush inside wall to the left
+    const rightDoorY = canvas.height - 40 - 72 - 8;
+    doors.push(new Door(rightDoorX, rightDoorY));
   }
 
-  state.player.x = state.player.checkpoint.x = 100; state.player.y = state.player.checkpoint.y = 100; state.player.vx = state.player.vy = 0;
-  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp; state.player.hp = state.player.maxHp; state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; state.techs = {};
+  // reset player and state values
+  state.player.x = state.player.checkpoint.x = 100;
+  state.player.y = state.player.checkpoint.y = 100;
+  state.player.vx = state.player.vy = 0;
+  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
+  state.player.hp = state.player.maxHp;
+  state.player.invuln = 0;
+  state.player.invulnSec = GAME_CONFIG.playerInvulnSec;
+  state.player.regen = GAME_CONFIG.playerHpRegenPerSec;
+  state.player.damageMult = 1;
+  state.player.lives = GAME_CONFIG.playerBaseLives;
+  state.techs = {};
+
   updateHUD();
 }
 reseed(seed); resetWorld();
@@ -328,6 +395,10 @@ function drawHUD(){
   ctx.fillStyle="#9f9"; ctx.fillText("Techs: "+(Object.keys(state.techs).join(", ")||"none"),16,66);
   ctx.fillStyle="#ccc"; ctx.fillText("Seed: "+seed,16,86);
   ctx.fillStyle="#9cf"; ctx.fillText("Floor: "+(state.floor||1),16,106);
+  ctx.fillStyle = "#cff";
+  ctx.fillText(`Plat: size=${GEN_CHUNK_SIZE} spacing=${GEN_SPACING_X} width=${GEN_PLAT_W}`, 16, 170);
+  ctx.fillText(`Height: base=${GEN_BASE_Y} var=${GEN_VAR_Y} cluster=${GEN_CLUSTER}`, 16, 186);
+
 
   const barX=16, barY=120, barW=220, barH=12;
   ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(barX-2,barY-2,barW+4,barH+4);
