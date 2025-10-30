@@ -20,7 +20,6 @@
 <h1>shape game beta test thingy (join up bro)</h1>
 <a href="https://forms.gle/p36Qi4Lzpem137ut5" target="_blank">clic to add stuff to game</a>
 <br>
-
   <div id="app">
     <div id="gameArea">
       <canvas id="gameCanvas" width="800" height="600"></canvas>
@@ -38,11 +37,13 @@
         <h3>Toggles</h3>
         <label><input type="checkbox" id="toggleSpawn" checked /> Spawn Enemies</label>
         <label><input type="checkbox" id="toggleLoot" checked /> Loot Drops</label>
+        <h3>Game</h3>
+        <div>Lives: <span id="livesDisplay">-</span></div>
         <h3>Debug</h3>
         <button id="regenSeed">Regenerate Seed</button>
       </div>
     </aside>
   </div>
-<script src="game.js"></script>
+  <script src="game.js"></script>
 </body>
 </html>
