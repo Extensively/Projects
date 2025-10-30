@@ -119,6 +119,41 @@ document.addEventListener("keydown", e => keys[e.code] = true);
 document.addEventListener("keyup", e => keys[e.code] = false);
 canvas.addEventListener("click", shootBullet);
 
+let mouseX = 0;
+let mouseY = 0;
+let mouseDown = false;
+
+canvas.addEventListener("mousemove", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  mouseX = e.clientX - rect.left;
+  mouseY = e.clientY - rect.top;
+});
+
+canvas.addEventListener("mousedown", (e) => {
+  mouseDown = true;
+  // optional: immediate shot on mousedown
+  shootBulletAtMouse();
+});
+
+canvas.addEventListener("mouseup", () => { mouseDown = false; });
+
+// optional: support touch
+canvas.addEventListener("touchstart", (e) => {
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouseX = t.clientX - rect.left;
+  mouseY = t.clientY - rect.top;
+  mouseDown = true;
+  shootBulletAtMouse();
+});
+canvas.addEventListener("touchmove", (e) => {
+  const t = e.touches[0];
+  const rect = canvas.getBoundingClientRect();
+  mouseX = t.clientX - rect.left;
+  mouseY = t.clientY - rect.top;
+});
+canvas.addEventListener("touchend", () => { mouseDown = false; });
+
 // ---------- Entities: Platform, Enemy, Loot ----------
 
 class Platform {
@@ -329,31 +364,50 @@ reseed(seed);
 resetWorld();
 
 // ---------- Shooting & weapon switching ----------
-function shootBullet() {
+function shootBulletAtMouse() {
   const gun = WEAPON_CONFIG[state.equippedGun] || WEAPON_CONFIG.basic;
   const originX = state.player.x + state.player.w / 2;
   const originY = state.player.y + state.player.h / 2;
+
+  // convert mouse (screen) coords to world coords (account for camera)
+  const worldMouseX = mouseX + cameraOffsetX;
+  const worldMouseY = mouseY;
+
+  // direction vector from origin to mouse
+  let dx = worldMouseX - originX;
+  let dy = worldMouseY - originY;
+  const dist = Math.hypot(dx, dy) || 1;
+  dx /= dist; dy /= dist;
+
+  const baseSpeed = gun.speed || 8;
   const damage = Math.max(1, Math.round((gun.damage || 1) * state.player.damageMult));
+
+  // helper to push a bullet with a direction and optional additional angle (radians)
+  function pushBulletWithAngle(angleOffset, speedMultiplier = 1) {
+    const cos = Math.cos(angleOffset);
+    const sin = Math.sin(angleOffset);
+    // rotate (dx,dy) by small angle offset
+    const rx = dx * cos - dy * sin;
+    const ry = dx * sin + dy * cos;
+    bullets.push({
+      x: originX + rx * (state.player.w / 2 + 4),
+      y: originY + ry * (state.player.h / 2 + 4),
+      vx: rx * baseSpeed * speedMultiplier,
+      vy: ry * baseSpeed * speedMultiplier,
+      w: 8, h: 4, color: gun.color, damage
+    });
+  }
+
   if (gun.spread) {
-    bullets.push({ x: originX, y: originY, vx: gun.speed, vy: 0, w: 10, h: 4, color: gun.color, damage });
-    bullets.push({ x: originX, y: originY, vx: gun.speed * 0.88, vy: -1.8, w: 10, h: 4, color: gun.color, damage });
-    bullets.push({ x: originX, y: originY, vx: gun.speed * 0.88, vy: 1.8, w: 10, h: 4, color: gun.color, damage });
+    // spread: three bullets at -10°, 0°, +10°
+    const spreadAngle = 10 * (Math.PI / 180);
+    pushBulletWithAngle(-spreadAngle, 1);
+    pushBulletWithAngle(0, 1);
+    pushBulletWithAngle(spreadAngle, 1);
   } else {
-    bullets.push({ x: originX, y: originY, vx: gun.speed, vy: 0, w: 10, h: 4, color: gun.color, damage });
+    pushBulletWithAngle(0, 1);
   }
 }
-document.addEventListener("keydown", (e) => {
-  if (e.code === "KeyQ") {
-    const keys = Object.keys(WEAPON_CONFIG);
-    let idx = keys.indexOf(state.equippedGun);
-    idx = (idx + 1) % keys.length;
-    state.equippedGun = keys[idx];
-  }
-  if (e.code === "ShiftLeft" && state.techs["dash"]) {
-    state.player.vx += (keys["ArrowRight"] || keys["KeyD"]) ? 8 : (keys["ArrowLeft"] || keys["KeyA"]) ? -8 : (state.player.vx > 0 ? 8 : -8);
-  }
-});
-
 // ---------- HUD ----------
 function updateHUD() { livesDisplay.textContent = state.player.lives; }
 function drawHUD() {
@@ -543,6 +597,16 @@ function gameLoop() {
 
   // Particles
   updateParticles();
+    
+  // --- draw aim indicator
+  ctx.strokeStyle = "rgba(255,255,255,0.25)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  const px = state.player.x + state.player.w / 2 - cameraOffsetX;
+  const py = state.player.y + state.player.h / 2;
+  ctx.moveTo(px, py);
+  ctx.lineTo(mouseX, mouseY);
+  ctx.stroke();
 
   // HUD & finish frame
   drawHUD();
