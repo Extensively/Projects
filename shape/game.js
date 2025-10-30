@@ -150,6 +150,8 @@ class Enemy {
   }
 }
 
+let cameraOffsetX = 0;
+let shake = { intensity: 0, time: 0 };
 class Loot { constructor(x,y,type){ this.x=x;this.y=y;this.w=20;this.h=20;this.type=type;this.color = type==="tech" ? "#0ff" : "#f0f"; } draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h) } }
 class Door { constructor(x,y){ this.x=x; this.y=y; this.w=48; this.h=72; this.color="#66ffff"; this.outline="#006d6d"; } draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h); ctx.strokeStyle=this.outline; ctx.lineWidth=2; ctx.strokeRect(this.x-cameraOffsetX+1,this.y+1,this.w-2,this.h-2); } }
 
