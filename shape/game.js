@@ -28,6 +28,10 @@ const settingsBody = document.getElementById("settingsBody");
 const regenSeedBtn = document.getElementById("regenSeed");
 const livesDisplay = document.getElementById("livesDisplay");
 
+// wall visual / collision thickness (px)
+const WALL_THICKNESS = 40;
+
+
 // new settings inputs (optional in index.html)
 const expansionAmountInput = document.getElementById("expansionAmount");
 const wallDistanceInput = document.getElementById("wallDistance");
@@ -252,6 +256,23 @@ function resetWorld(){
   updateWalls();
   spawnEnemiesOn(initial, true);
   spawnDoorsOn(initial, true);
+  // guarantee a door at one of the walls (prefer right if player starts toward right)
+  if (ENABLE_WALLS) {
+    const placeAtRight = rng() < 0.5;
+    if (placeAtRight) {
+      const doorX = rightWallX - rightWallHalf - 48 - 8; // place door flush inside wall area to the left
+      const doorY = canvas.height - 40 - 72 - 8; // place on ground level above floor (adjust if you use platform heights)
+      doors.push(new Door(doorX, doorY));
+    } else {
+      const doorX = leftWallX + leftWallHalf + 8; // flush inside wall area to the right
+      const doorY = canvas.height - 40 - 72 - 8;
+      doors.push(new Door(doorX, doorY));
+    }
+  } else {
+    // fallback: keep guaranteed door on a platform (existing behavior)
+    spawnDoorsOn(initial, true);
+  }
+
   state.player.x = state.player.checkpoint.x = 100; state.player.y = state.player.checkpoint.y = 100; state.player.vx = state.player.vy = 0;
   state.player.maxHp = GAME_CONFIG.playerBaseMaxHp; state.player.hp = state.player.maxHp; state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; state.techs = {};
   updateHUD();
@@ -282,6 +303,17 @@ function shootBulletAtMouse(){
   noteShotFired();
 }
 
+function updateWalls() {
+  // leftWallX/rightWallX are center X of wall interior (world coords)
+  leftWallX = ENABLE_WALLS ? -WALL_DISTANCE : -999999;
+  rightWallX = ENABLE_WALLS ? WALL_DISTANCE : 999999;
+  // compute wall visual rectangle bounds using thickness when rendering / collision
+  // (we store half-thickness for easier collision math)
+  leftWallHalf = Math.floor(WALL_THICKNESS / 2);
+  rightWallHalf = Math.floor(WALL_THICKNESS / 2);
+}
+
+
 document.addEventListener("keydown", (e)=>{
   if(e.code==="KeyQ"){ const ks = Object.keys(WEAPON_CONFIG); let i = ks.indexOf(state.equippedGun); state.equippedGun = ks[(i+1)%ks.length]; }
   if(e.code==="ShiftLeft" && state.techs["dash"]){ state.player.vx += (keys["ArrowRight"]||keys["KeyD"]) ? 8*FPS_BASIS : (keys["ArrowLeft"]||keys["KeyA"]) ? -8*FPS_BASIS : (state.player.vx>0 ? 8*FPS_BASIS : -8*FPS_BASIS); }
@@ -305,9 +337,6 @@ function drawHUD(){
   ctx.fillStyle="#fff"; ctx.font="12px system-ui, Arial"; ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX+6, barY+10);
   ctx.fillText(`Lives: ${state.player.lives}`, barX+160, barY+10);
   ctx.fillStyle="#ffd"; ctx.fillText("Enemies: "+enemies.length,16,144);
-  ctx.fillStyle = "#9cf";
-  ctx.fillText("Door %: " + Math.round(DOOR_SPAWN_CHANCE * 100) + "%", 16, 122);
-
 }
 
 // ---------- Physics update ----------
@@ -331,6 +360,28 @@ function updatePhysics(dt){
   state.player.y += state.player.vy * dt;
 
   cameraOffsetX = state.player.x - canvas.width / 2;
+
+  // Wall collision (prevent player crossing into walls)
+  // We treat walls as vertical rectangles centered at leftWallX / rightWallX with half-thickness leftWallHalf/rightWallHalf
+  if (ENABLE_WALLS) {
+    // left wall
+    const leftWallLeftX = leftWallX - leftWallHalf;
+    const leftWallRightX = leftWallX + leftWallHalf;
+    if (state.player.x < leftWallRightX) {
+      // push player to the right edge of left wall
+      state.player.x = leftWallRightX;
+      if (state.player.vx < 0) state.player.vx = 0;
+    }
+    // right wall
+    const rightWallLeftX = rightWallX - rightWallHalf;
+    const rightWallRightX = rightWallX + rightWallHalf;
+    if (state.player.x + state.player.w > rightWallLeftX) {
+      // push player to the left edge of right wall
+      state.player.x = rightWallLeftX - state.player.w;
+      if (state.player.vx > 0) state.player.vx = 0;
+    }
+  }
+
 
   // collisions with platforms
   state.player.onGround = false;
@@ -367,10 +418,31 @@ function updatePhysics(dt){
   for(let i=bullets.length-1;i>=0;i--){
     const b = bullets[i]; b.x += b.vx * dt; b.y += b.vy * dt; b.angle = Math.atan2(b.vy||0,b.vx||0);
     if(b.x - cameraOffsetX > canvas.width + 200 || (Math.abs(b.vx) < 1 && Math.abs(b.vy||0) < 1)) bullets.splice(i,1);
+    // inside bullets loop, after b.x/b.y update and angle update
+    if (ENABLE_WALLS) {
+      const bWorldX = b.x;
+      // left wall rect
+      const lwLeft = leftWallX - leftWallHalf;
+      const lwRight = leftWallX + leftWallHalf;
+      if (bWorldX < lwRight) { bullets.splice(i, 1); continue; }
+      // right wall rect
+      const rwLeft = rightWallX - rightWallHalf;
+      if (bWorldX > rwLeft) { bullets.splice(i, 1); continue; }
+    }
+
+
   }
   for(let i=enemyBullets.length-1;i>=0;i--){
     const eb = enemyBullets[i]; eb.x += eb.vx * dt; eb.y += eb.vy * dt; eb.angle = Math.atan2(eb.vy||0, eb.vx||0);
     if(eb.x < state.player.x + state.player.w && eb.x + eb.w > state.player.x && eb.y < state.player.y + state.player.h && eb.y + eb.h > state.player.y){ damagePlayer(eb.damage||1, eb.vx||0); enemyBullets.splice(i,1); }
+    if (ENABLE_WALLS) {
+    ctx.fillStyle = "#222";
+    // left wall rectangle (centered at leftWallX)
+    ctx.fillRect(leftWallX - leftWallHalf - cameraOffsetX, -2000, WALL_THICKNESS, 4000);
+    // right wall rectangle
+    ctx.fillRect(rightWallX - rightWallHalf - cameraOffsetX, -2000, WALL_THICKNESS, 4000);
+    }
+
     else if(eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) enemyBullets.splice(i,1);
   }
 
