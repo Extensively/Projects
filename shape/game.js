@@ -554,12 +554,6 @@ function gameLoop() {
 // ---------- Helpers ----------
 function computeTerrainEnd() { let maxX = 0; for (let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
 
-// --- Loot class (reuse) ---
-class Loot {
-  constructor(x, y, type) { this.x = x; this.y = y; this.w = 20; this.h = 20; this.type = type; this.color = type === "tech" ? "#0ff" : "#f0f"; }
-  draw() { ctx.fillStyle = this.color; ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h); }
-}
-
 // ---------- Start ----------
 updateHUD();
 gameLoop();
