@@ -34,6 +34,12 @@ const wallDistanceInput = document.getElementById("wallDistance");
 const infiniteWallsCheckbox = document.getElementById("infiniteWalls");
 const attackRateInput = document.getElementById("attackRateInput");
 
+const doorSpawnInput = document.getElementById("doorSpawnRate");
+let DOOR_SPAWN_CHANCE = doorSpawnInput ? Math.max(0, Math.min(1, Number(doorSpawnInput.value))) : 0.12;
+if (doorSpawnInput) doorSpawnInput.addEventListener("change", () => {
+  DOOR_SPAWN_CHANCE = Math.max(0, Math.min(1, Number(doorSpawnInput.value)));
+});
+
 // defaults and runtime params
 const SETTINGS_DEFAULTS = { WORLD_EXPANSION_CHUNKS: 10, WALL_DISTANCE: 3000, ENABLE_WALLS: true, PLAYER_ATTACK_RATE: 6 };
 
@@ -222,7 +228,7 @@ function spawnEnemiesOn(platformArray, preferVisible=false){
 }
 function spawnDoorsOn(platformArray, guarantee=false){
   for(let plat of platformArray){
-    if(rng() < 0.12 || (guarantee && doors.length === 0)){
+    if (rng() < DOOR_SPAWN_CHANCE || (guarantee && doors.length === 0)) {
       const dx = plat.x + Math.floor(plat.w/2) - 24 + Math.floor(rng()*40 - 20);
       const dy = plat.y - 72;
       doors.push(new Door(dx, dy));
@@ -288,6 +294,9 @@ function drawHUD(){
   ctx.fillStyle="#9f9"; ctx.fillText("Techs: "+(Object.keys(state.techs).join(", ")||"none"),16,66);
   ctx.fillStyle="#ccc"; ctx.fillText("Seed: "+seed,16,86);
   ctx.fillStyle="#9cf"; ctx.fillText("Floor: "+(state.floor||1),16,106);
+  ctx.fillStyle = "#9cf";
+  ctx.fillText("Door %: " + Math.round(DOOR_SPAWN_CHANCE * 100) + "%", 16, 122);
+
 
   const barX=16, barY=120, barW=220, barH=12;
   ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(barX-2,barY-2,barW+4,barH+4);
