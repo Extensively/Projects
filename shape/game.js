@@ -406,6 +406,20 @@ function shootBulletAtMouse() {
     pushBulletWithAngle(0, 1);
   }
 }
+function shootBullet() {
+  // forward to mouse-aimed shooter; keep behavior if mouse not set
+  try {
+    shootBulletAtMouse();
+  } catch (e) {
+    // fallback: create a forward shot if mouse data missing
+    // simple straight-right shot from player
+    const originX = state.player.x + state.player.w / 2;
+    const originY = state.player.y + state.player.h / 2;
+    const baseSpeed = (WEAPON_CONFIG[state.equippedGun]?.speed || 8) * BULLET_SPEED_SCALE;
+    const damage = Math.max(1, Math.round((WEAPON_CONFIG[state.equippedGun]?.damage || 1) * state.player.damageMult));
+    bullets.push({ x: originX, y: originY, vx: baseSpeed, vy: 0, w: 8, h: 4, color: WEAPON_CONFIG[state.equippedGun]?.color || "#fff", damage });
+  }
+}
 
 document.addEventListener("keydown", (e) => {
   if (e.code === "KeyQ") {
