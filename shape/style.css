@@ -190,3 +190,8 @@ html, body {
   width: 100vw;
   box-sizing: border-box;
 }
+#gameCanvas {
+    background: #000;
+    display: block;
+    margin: 0 auto;
+}

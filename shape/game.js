@@ -1,7 +1,31 @@
-/* game.js — updated: unlockable guns, HUD for owned guns, drop-rate and enemy-spawn-rate settings
-   Replace your current game.js with this file.
-*/
+// Add this right after the first comment block
+function debugLog(message) {
+    const debugDiv = document.getElementById('debugOutput');
+    if (debugDiv) {
+        debugDiv.innerHTML += message + '<br>';
+    }
+}
 
+// Basic error checking
+window.addEventListener('load', () => {
+    if (!canvas) {
+        debugLog('ERROR: Canvas element not found');
+        return;
+    }
+    if (!ctx) {
+        debugLog('ERROR: Could not get canvas context');
+        return;
+    }
+    
+    // Test canvas drawing
+    try {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        debugLog('Canvas test draw successful');
+    } catch (e) {
+        debugLog('ERROR: Canvas draw failed: ' + e.message);
+    }
+});
 // ---------- Config / Physics ----------
 const FIXED_HZ = 60;
 const FIXED_DT = 1 / FIXED_HZ;
@@ -627,14 +651,23 @@ function render(){
 }
 
 // ---------- Main loop ----------
-function run(nowMs){
-  requestAnimationFrame(run);
-  let elapsedSeconds = (nowMs - lastFrameTimeMs) / 1000;
-  lastFrameTimeMs = nowMs;
-  if(elapsedSeconds > MAX_ACCUM_SECONDS) elapsedSeconds = MAX_ACCUM_SECONDS;
-  deltaAccumulator += elapsedSeconds;
-  while(deltaAccumulator >= FIXED_DT){ updatePhysics(FIXED_DT); deltaAccumulator -= FIXED_DT; }
-  render();
+function run(nowMs) {
+    try {
+        const deltaMs = nowMs - lastFrameTimeMs;
+        lastFrameTimeMs = nowMs;
+        deltaAccumulator += deltaMs / 1000;
+        deltaAccumulator = Math.min(deltaAccumulator, MAX_ACCUM_SECONDS);
+
+        while (deltaAccumulator >= FIXED_DT) {
+            updatePhysics(FIXED_DT);
+            deltaAccumulator -= FIXED_DT;
+        }
+
+        render();
+        requestAnimationFrame(run);
+    } catch (e) {
+        debugLog('ERROR in game loop: ' + e.message);
+    }
 }
 
 // ---------- Helpers ----------
