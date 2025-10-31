@@ -367,9 +367,13 @@ reseed(seed); resetWorld();
 function canFireNow() {
   const now = performance.now() / 1000;
   const weaponId = state.equippedGun;
-  const weapon = (weaponId && WEAPON_CONFIG[weaponId]) ? WEAPON_CONFIG[weaponId] : WEAPON_CONFIG.basic;
-  const perWeaponRate = (weapon && weapon.attackRate) ? Number(weapon.attackRate) : PLAYER_ATTACK_RATE;
-  const effectiveRate = Math.min(PLAYER_ATTACK_RATE, perWeaponRate);
+  const weapon = (weaponId && WEAPON_CONFIG[weaponId]) ? WEAPON_CONFIG[weaponId] : null;
+
+  // PLAYER_ATTACK_RATE remains as the global factor (from UI). It now multiplies each weapon's base attackRate.
+  // If the weapon has no attackRate field, use the global value directly.
+  const weaponBaseRate = (weapon && weapon.attackRate) ? Number(weapon.attackRate) : PLAYER_ATTACK_RATE;
+  const effectiveRate = weaponBaseRate * Number(PLAYER_ATTACK_RATE);
+
   const minDelay = 1 / effectiveRate;
   return (now - (state.player.lastShotTime || -999)) >= minDelay;
 }
