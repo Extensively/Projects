@@ -1,6 +1,5 @@
-/* game.js — fixed-timestep prototype with:
-   attack rate cap, bidirectional generation, walls, door entity,
-   bullets facing movement, techs, HUD, particles.
+/* game.js — updated: unlockable guns, HUD for owned guns, drop-rate and enemy-spawn-rate settings
+   Replace your current game.js with this file.
 */
 
 // ---------- Config / Physics ----------
@@ -31,13 +30,13 @@ const livesDisplay = document.getElementById("livesDisplay");
 // wall visual / collision thickness (px)
 const WALL_THICKNESS = 40;
 
-
 // new settings inputs (optional in index.html)
 const expansionAmountInput = document.getElementById("expansionAmount");
 const wallDistanceInput = document.getElementById("wallDistance");
 const infiniteWallsCheckbox = document.getElementById("infiniteWalls");
 const attackRateInput = document.getElementById("attackRateInput");
-// generation tunables (defaults match previous behavior)
+
+// generation tunables
 const genChunkSizeInput = document.getElementById("gen_chunkSize");
 const genSpacingXInput = document.getElementById("gen_spacingX");
 const genPlatWidthInput = document.getElementById("gen_platWidth");
@@ -45,6 +44,16 @@ const genBaseYInput = document.getElementById("gen_baseY");
 const genVarYInput = document.getElementById("gen_varY");
 const genJitterXInput = document.getElementById("gen_jitterX");
 const genClusterInput = document.getElementById("gen_cluster");
+
+// door spawn chance input (already present if you added earlier)
+const doorSpawnInput = document.getElementById("doorSpawnRate");
+
+// new drop rate inputs (Tech / Gun)
+const dropRateTechInput = document.getElementById("dropRateTech");
+const dropRateGunInput = document.getElementById("dropRateGun");
+
+// enemy spawn chance input
+const enemySpawnRateInput = document.getElementById("enemySpawnRate");
 
 // runtime params (use DOM values if present, else sensible defaults)
 let GEN_CHUNK_SIZE = genChunkSizeInput ? Math.max(1, Number(genChunkSizeInput.value)) : 10;
@@ -55,7 +64,6 @@ let GEN_VAR_Y      = genVarYInput ? Math.max(0, Number(genVarYInput.value)) : 18
 let GEN_JITTER_X   = genJitterXInput ? Math.max(0, Number(genJitterXInput.value)) : 48;
 let GEN_CLUSTER    = genClusterInput ? Math.min(1, Math.max(0, Number(genClusterInput.value))) : 0.0;
 
-// bind live updates
 if (genChunkSizeInput) genChunkSizeInput.addEventListener("change", () => { GEN_CHUNK_SIZE = Math.max(1, Number(genChunkSizeInput.value)); });
 if (genSpacingXInput)  genSpacingXInput.addEventListener("change", () => { GEN_SPACING_X = Math.max(1, Number(genSpacingXInput.value)); });
 if (genPlatWidthInput) genPlatWidthInput.addEventListener("change", () => { GEN_PLAT_W = Math.max(1, Number(genPlatWidthInput.value)); });
@@ -64,11 +72,19 @@ if (genVarYInput)      genVarYInput.addEventListener("change", () => { GEN_VAR_Y
 if (genJitterXInput)   genJitterXInput.addEventListener("change", () => { GEN_JITTER_X = Math.max(0, Number(genJitterXInput.value)); });
 if (genClusterInput)   genClusterInput.addEventListener("change", () => { GEN_CLUSTER = Math.min(1, Math.max(0, Number(genClusterInput.value))); });
 
-const doorSpawnInput = document.getElementById("doorSpawnRate");
+// door spawn chance
 let DOOR_SPAWN_CHANCE = doorSpawnInput ? Math.max(0, Math.min(1, Number(doorSpawnInput.value))) : 0.12;
-if (doorSpawnInput) doorSpawnInput.addEventListener("change", () => {
-  DOOR_SPAWN_CHANCE = Math.max(0, Math.min(1, Number(doorSpawnInput.value)));
-});
+if (doorSpawnInput) doorSpawnInput.addEventListener("change", () => { DOOR_SPAWN_CHANCE = Math.max(0, Math.min(1, Number(doorSpawnInput.value))); });
+
+// drop rates
+let DROP_RATE_TECH = dropRateTechInput ? Math.min(1, Math.max(0, Number(dropRateTechInput.value))) : 0.12;
+let DROP_RATE_GUN  = dropRateGunInput  ? Math.min(1, Math.max(0, Number(dropRateGunInput.value)))  : 0.12;
+if (dropRateTechInput) dropRateTechInput.addEventListener("change", () => { DROP_RATE_TECH = Math.min(1, Math.max(0, Number(dropRateTechInput.value))); });
+if (dropRateGunInput)  dropRateGunInput.addEventListener("change", () => { DROP_RATE_GUN  = Math.min(1, Math.max(0, Number(dropRateGunInput.value))); });
+
+// enemy spawn rate (per platform)
+let ENEMY_SPAWN_CHANCE = enemySpawnRateInput ? Math.min(1, Math.max(0, Number(enemySpawnRateInput.value))) : 0.45;
+if (enemySpawnRateInput) enemySpawnRateInput.addEventListener("change", () => { ENEMY_SPAWN_CHANCE = Math.min(1, Math.max(0, Number(enemySpawnRateInput.value))); });
 
 // defaults and runtime params
 const SETTINGS_DEFAULTS = { WORLD_EXPANSION_CHUNKS: 10, WALL_DISTANCE: 3000, ENABLE_WALLS: true, PLAYER_ATTACK_RATE: 6 };
@@ -85,10 +101,12 @@ if (infiniteWallsCheckbox) infiniteWallsCheckbox.addEventListener("change", () =
 if (attackRateInput) attackRateInput.addEventListener("change", () => { PLAYER_ATTACK_RATE = Math.max(0.1, Number(attackRateInput.value)); });
 
 // small UI guards
-if (toggleBtn && settingsBody) toggleBtn.addEventListener("click", () => {
-  const collapsed = settingsBody.classList.toggle("collapsed");
-  toggleBtn.textContent = collapsed ? "Settings ▸" : "Settings ◂";
-});
+if (toggleBtn && settingsBody) {
+  toggleBtn.addEventListener("click", () => {
+    const collapsed = settingsBody.classList.toggle("collapsed");
+    toggleBtn.textContent = collapsed ? "Settings ▸" : "Settings ◂";
+  });
+}
 if (regenSeedBtn) regenSeedBtn.addEventListener("click", () => { reseed(Math.floor(Math.random() * 1e9)); resetWorld(); });
 
 // ---------- RNG ----------
@@ -100,8 +118,11 @@ function reseed(newSeed) { seed = newSeed | 0; rng = mulberry32(seed); if (seedD
 
 // ---------- Game config / techs / weapons ----------
 const GAME_CONFIG = { playerBaseMaxHp: 10, playerBaseLives: 3, playerInvulnSec: 1.0, playerHpRegenPerSec: 0, respawnInvulnSec: 2.0, screenShakeIntensityOnHit: 6, particleCountOnHit: 12 };
-const WEAPON_CONFIG = { basic: { speed: 8, color: "#fff", damage: 1, spread: false }, laser: { speed: 12, color: "#0ff", damage: 2, spread: false }, spread: { speed: 7, color: "#f0f", damage: 1, spread: true } };
-
+const WEAPON_CONFIG = { 
+  basic:  { speed:  8, color: "#fff", damage: 1, spread: false, attackRate: 6.0,  dropWeight: 40 }, // common, moderate fire
+  laser:  { speed: 12, color: "#0ff", damage: 2, spread: false, attackRate: 2.5,  dropWeight: 15 }, // stronger, slower
+  spread: { speed:  7, color: "#f0f", damage: 1, spread: true,  attackRate: 3.0,  dropWeight: 10 }  // multi-shot, mid speed
+};
 const TECH_CATALOG = {
   hp_boost: { id: "hp_boost", name: "HP Boost", description: "Increase max HP by 4", apply(s){ s.player.maxHp +=4; s.player.hp +=4 }, revert(s){ s.player.maxHp -=4; if(s.player.hp>s.player.maxHp) s.player.hp=s.player.maxHp } },
   regen_boost: { id:"regen_boost", name:"HP Regen", description:"Restore 1 HP every 2s", apply(s){ s.player.regen += 0.5 }, revert(s){ s.player.regen = Math.max(0,s.player.regen-0.5) } },
@@ -113,7 +134,11 @@ const TECH_CATALOG = {
 // ---------- State ----------
 const state = {
   player: { x:100, y:100, w:30, h:30, vx:0, vy:0, baseColor:"#0f0", color:"#0f0", maxHp:GAME_CONFIG.playerBaseMaxHp, hp:GAME_CONFIG.playerBaseMaxHp, invuln:0, invulnSec:GAME_CONFIG.playerInvulnSec, regen:GAME_CONFIG.playerHpRegenPerSec, damageMult:1, lives:GAME_CONFIG.playerBaseLives, checkpoint:{x:100,y:100}, jumpCount:0, lastShotTime:-999 },
-  techs: {}, equippedGun:"basic", floor:1
+  techs: {},
+  // weapon ownership: map id => true when unlocked
+  ownedGuns: { "basic": true }, // player starts with basic unlocked
+  equippedGun: "basic",
+  floor: 1
 };
 
 // ---------- Particle pool ----------
@@ -180,8 +205,6 @@ class Enemy {
   }
 }
 
-let cameraOffsetX = 0;
-let shake = { intensity: 0, time: 0 };
 class Loot { constructor(x,y,type){ this.x=x;this.y=y;this.w=20;this.h=20;this.type=type;this.color = type==="tech" ? "#0ff" : "#f0f"; } draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h) } }
 class Door { constructor(x,y){ this.x=x; this.y=y; this.w=48; this.h=72; this.color="#66ffff"; this.outline="#006d6d"; } draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h); ctx.strokeStyle=this.outline; ctx.lineWidth=2; ctx.strokeRect(this.x-cameraOffsetX+1,this.y+1,this.w-2,this.h-2); } }
 
@@ -193,7 +216,8 @@ let enemies = [], lootDrops = [], bullets = [], enemyBullets = [], doors = [];
 
 // walls
 let leftWallX = -SETTINGS_DEFAULTS.WALL_DISTANCE, rightWallX = SETTINGS_DEFAULTS.WALL_DISTANCE;
-function updateWalls(){ leftWallX = ENABLE_WALLS ? -WALL_DISTANCE : -999999; rightWallX = ENABLE_WALLS ? WALL_DISTANCE : 999999; }
+let leftWallHalf = Math.floor(WALL_THICKNESS/2), rightWallHalf = Math.floor(WALL_THICKNESS/2);
+function updateWalls(){ leftWallX = ENABLE_WALLS ? -WALL_DISTANCE : -999999; rightWallX = ENABLE_WALLS ? WALL_DISTANCE : 999999; leftWallHalf = Math.floor(WALL_THICKNESS/2); rightWallHalf = Math.floor(WALL_THICKNESS/2); }
 updateWalls();
 
 // ---------- Particles / shake ----------
@@ -230,32 +254,16 @@ function damagePlayer(amount, sourceVx=0){
 function handlePlayerDeath(){
   state.player.lives = Math.max(0, state.player.lives - 1);
   if(state.player.lives <= 0){ state.player.lives = GAME_CONFIG.playerBaseLives; reseed(Math.floor(Math.random()*1e9)); }
-  state.player.hp = state.player.maxHp; state.player.x = state.player.checkpoint.x; state.player.y = state.player.checkpoint.y; state.player.vx=0; state.player.vy=0; state.player.invuln = GAME_CONFIG.respawnInvulnSec; updateHUD();
+  state.player.hp = state.player.maxHp; state.player.x = state.player.checkpoint.x; state.player.y = state.player.checkpoint.y; state.player.vx = 0; state.player.vy = 0; state.player.invuln = GAME_CONFIG.respawnInvulnSec; updateHUD();
 }
 
 // ---------- Generation ----------
-// generatePlatforms(startX, count) — respects live tuning vars
-function generatePlatforms(startX = 0, count = GEN_CHUNK_SIZE) {
+function generatePlatforms(startX = 0, count = GEN_CHUNK_SIZE){
   const ret = [];
-  let x = startX;
-  for (let i = 0; i < count; i++) {
-    // spacing and jitter
-    const baseSpacing = GEN_SPACING_X;
-    const jitter = Math.floor((rng() * 2 - 1) * GEN_JITTER_X);
-    x = startX + i * baseSpacing + jitter;
-
-    // clustering: occasionally reduce spacing to create clusters
-    if (GEN_CLUSTER > 0 && rng() < GEN_CLUSTER) {
-      x = (i > 0) ? (ret[i-1].x + Math.floor(rng() * (baseSpacing / 2))) : x;
-    }
-
-    // height determined by base + variance
-    const y = GEN_BASE_Y + Math.floor(rng() * GEN_VAR_Y);
-
-    // platform width from setting (use GEN_PLAT_W)
-    const w = GEN_PLAT_W;
-
-    ret.push(new Platform(x, y, w, 18));
+  for(let i=0;i<count;i++){ const baseSpacing = GEN_SPACING_X; const jitter = Math.floor((rng()*2-1)*GEN_JITTER_X); let x = startX + i*baseSpacing + jitter;
+    if(GEN_CLUSTER>0 && rng()<GEN_CLUSTER) x = (i>0)? (ret[i-1].x + Math.floor(rng()*(baseSpacing/2))) : x;
+    const y = GEN_BASE_Y + Math.floor(rng()*GEN_VAR_Y); const w = GEN_PLAT_W;
+    ret.push(new Platform(x,y,w,18));
   }
   return ret;
 }
@@ -264,8 +272,8 @@ function spawnEnemiesOn(platformArray, preferVisible=false){
   if(!toggleSpawn || !toggleSpawn.checked) return;
   for(let plat of platformArray){
     if(plat===floor) continue;
-    if(rng()<0.45){
-      const type = rng()<0.5 ? "circle" : "triangle";
+    if(rng() < ENEMY_SPAWN_CHANCE){
+      const type = rng() < 0.5 ? "circle" : "triangle";
       const r = rng(); const behavior = r < 0.55 ? "patrol" : (r < 0.8 ? "jump" : "shooter");
       const minX = plat.x + 12; const maxX = Math.max(minX+8, plat.x + plat.w - 40);
       let ex = minX + Math.floor(rng()*Math.max(1,(maxX-minX)));
@@ -291,70 +299,57 @@ function spawnDoorsOn(platformArray, guarantee=false){
 
 // ---------- Reset world ----------
 function computeTerrainEnd(){ let maxX=0; for(let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
-function resetWorld() {
+function resetWorld(){
   rng = mulberry32(seed);
   platforms = [floor];
   const initial = generatePlatforms(0, WORLD_EXPANSION_CHUNKS);
   platforms.push(...initial);
-
-  enemies = [];
-  lootDrops = [];
-  bullets = [];
-  enemyBullets = [];
-  doors = [];
-
-  // world extents based on initial platforms
+  enemies = []; lootDrops = []; bullets = []; enemyBullets = []; doors = [];
   worldLeftX = initial[0].x - 400;
-  worldRightX = initial[initial.length - 1].x + 400;
+  worldRightX = initial[initial.length-1].x + 400;
   terrainEndX = computeTerrainEnd();
-
   updateWalls();
-
-  // spawn enemies on initial platforms (visible area)
   spawnEnemiesOn(initial, true);
-
-  // spawn probabilistic doors on platforms (do not force one at spawn)
   spawnDoorsOn(initial, false);
-
-  // Guarantee doors at both walls (if walls enabled)
   if (ENABLE_WALLS) {
-    // left wall door: place just inside the wall, slightly above floor
-    const leftDoorX = leftWallX + leftWallHalf + 8; // flush inside wall to the right
-    const leftDoorY = canvas.height - 40 - 72 - 8; // above floor; adjust if your floor Y differs
+    const leftDoorX = leftWallX + leftWallHalf + 8;
+    const leftDoorY = canvas.height - 40 - 72 - 8;
     doors.push(new Door(leftDoorX, leftDoorY));
-
-    // right wall door: place just inside the wall, slightly above floor
-    const rightDoorX = rightWallX - rightWallHalf - 48 - 8; // flush inside wall to the left
+    const rightDoorX = rightWallX - rightWallHalf - 48 - 8;
     const rightDoorY = canvas.height - 40 - 72 - 8;
     doors.push(new Door(rightDoorX, rightDoorY));
   }
-
-  // reset player and state values
-  state.player.x = state.player.checkpoint.x = 100;
-  state.player.y = state.player.checkpoint.y = 100;
-  state.player.vx = state.player.vy = 0;
-  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
-  state.player.hp = state.player.maxHp;
-  state.player.invuln = 0;
-  state.player.invulnSec = GAME_CONFIG.playerInvulnSec;
-  state.player.regen = GAME_CONFIG.playerHpRegenPerSec;
-  state.player.damageMult = 1;
-  state.player.lives = GAME_CONFIG.playerBaseLives;
-  state.techs = {};
-
+  state.player.x = state.player.checkpoint.x = 100; state.player.y = state.player.checkpoint.y = 100; state.player.vx = state.player.vy = 0;
+  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp; state.player.hp = state.player.maxHp; state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; /* keep state.ownedGuns persistent */ state.techs = {};
+  // ensure an equipped gun if none
+  if (!state.equippedGun) {
+    const owned = Object.keys(state.ownedGuns).filter(k => state.ownedGuns[k]);
+    state.equippedGun = owned.length ? owned[0] : null;
+  }
   updateHUD();
 }
 reseed(seed); resetWorld();
 
 // ---------- Attack rate handling ----------
-function canFireNow(){ const now = performance.now()/1000; const minDelay = 1 / PLAYER_ATTACK_RATE; return (now - (state.player.lastShotTime||-999)) >= minDelay; }
+// enforce global cap AND per-weapon rate (effective rate = min(global, weapon.attackRate))
+function canFireNow() {
+  const now = performance.now() / 1000;
+  const weaponId = state.equippedGun;
+  const weapon = (weaponId && WEAPON_CONFIG[weaponId]) ? WEAPON_CONFIG[weaponId] : WEAPON_CONFIG.basic;
+  const perWeaponRate = (weapon && weapon.attackRate) ? Number(weapon.attackRate) : PLAYER_ATTACK_RATE;
+  const effectiveRate = Math.min(PLAYER_ATTACK_RATE, perWeaponRate);
+  const minDelay = 1 / effectiveRate;
+  return (now - (state.player.lastShotTime || -999)) >= minDelay;
+}
 function noteShotFired(){ state.player.lastShotTime = performance.now()/1000; }
 function handleAutoFire(){ if(mouseDown && canFireNow()){ shootBulletAtMouse(); noteShotFired(); } }
 
 // ---------- Shooting ----------
 function shootBulletAtMouse(){
   if(!canFireNow()) return;
-  const gun = WEAPON_CONFIG[state.equippedGun] || WEAPON_CONFIG.basic;
+  if(!state.equippedGun) return;
+  const gun = WEAPON_CONFIG[state.equippedGun];
+  if(!gun) return;
   const originX = state.player.x + state.player.w/2; const originY = state.player.y + state.player.h/2;
   const worldMouseX = mouseX + cameraOffsetX; const worldMouseY = mouseY;
   let dx = worldMouseX - originX; let dy = worldMouseY - originY; const dist = Math.hypot(dx,dy)||1; dx/=dist; dy/=dist;
@@ -370,36 +365,34 @@ function shootBulletAtMouse(){
   noteShotFired();
 }
 
-function updateWalls() {
-  // leftWallX/rightWallX are center X of wall interior (world coords)
-  leftWallX = ENABLE_WALLS ? -WALL_DISTANCE : -999999;
-  rightWallX = ENABLE_WALLS ? WALL_DISTANCE : 999999;
-  // compute wall visual rectangle bounds using thickness when rendering / collision
-  // (we store half-thickness for easier collision math)
-  leftWallHalf = Math.floor(WALL_THICKNESS / 2);
-  rightWallHalf = Math.floor(WALL_THICKNESS / 2);
-}
-
-
-document.addEventListener("keydown", (e)=>{
-  if(e.code==="KeyQ"){ const ks = Object.keys(WEAPON_CONFIG); let i = ks.indexOf(state.equippedGun); state.equippedGun = ks[(i+1)%ks.length]; }
-  if(e.code==="ShiftLeft" && state.techs["dash"]){ state.player.vx += (keys["ArrowRight"]||keys["KeyD"]) ? 8*FPS_BASIS : (keys["ArrowLeft"]||keys["KeyA"]) ? -8*FPS_BASIS : (state.player.vx>0 ? 8*FPS_BASIS : -8*FPS_BASIS); }
+document.addEventListener("keydown", (e) => {
+  if (e.code === "KeyQ") {
+    const owned = Object.keys(state.ownedGuns).filter(k => state.ownedGuns[k]);
+    if (owned.length === 0) return;
+    let idx = owned.indexOf(state.equippedGun);
+    idx = (idx + 1) % owned.length;
+    state.equippedGun = owned[idx];
+  }
+  if (e.code === "ShiftLeft" && state.techs["dash"]) {
+    state.player.vx += (keys["ArrowRight"] || keys["KeyD"]) ? 8 * FPS_BASIS : (keys["ArrowLeft"] || keys["KeyA"]) ? -8 * FPS_BASIS : (state.player.vx > 0 ? 8 * FPS_BASIS : -8 * FPS_BASIS);
+  }
 });
 
 // ---------- HUD ----------
 function updateHUD(){ if(livesDisplay) livesDisplay.textContent = state.player.lives; }
 function drawHUD(){
+  // left HUD (existing)
   ctx.fillStyle="rgba(0,0,0,0.45)"; ctx.fillRect(8,8,360,132);
-  ctx.fillStyle="#fff"; ctx.font="14px system-ui, Arial"; ctx.fillText("Weapon: "+state.equippedGun,16,28);
-  ctx.fillStyle="#999"; ctx.fillText("Press Q to cycle weapons",16,46);
-  ctx.fillStyle="#9f9"; ctx.fillText("Techs: "+(Object.keys(state.techs).join(", ")||"none"),16,66);
-  ctx.fillStyle="#ccc"; ctx.fillText("Seed: "+seed,16,86);
-  ctx.fillStyle="#9cf"; ctx.fillText("Floor: "+(state.floor||1),16,106);
+  ctx.fillStyle="#fff"; ctx.font="14px system-ui, Arial"; ctx.fillText("Weapon: " + (state.equippedGun || "none"), 16, 28);
+  ctx.fillStyle="#999"; ctx.fillText("Press Q to cycle weapons", 16, 46);
+  ctx.fillStyle="#9f9"; ctx.fillText("Techs: " + (Object.keys(state.techs).join(", ") || "none"), 16, 66);
+  ctx.fillStyle="#ccc"; ctx.fillText("Seed: " + seed, 16, 86);
+  ctx.fillStyle="#9cf"; ctx.fillText("Floor: " + (state.floor||1), 16, 106);
   ctx.fillStyle = "#cff";
   ctx.fillText(`Plat: size=${GEN_CHUNK_SIZE} spacing=${GEN_SPACING_X} width=${GEN_PLAT_W}`, 16, 170);
   ctx.fillText(`Height: base=${GEN_BASE_Y} var=${GEN_VAR_Y} cluster=${GEN_CLUSTER}`, 16, 186);
 
-
+  // HP bar
   const barX=16, barY=120, barW=220, barH=12;
   ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(barX-2,barY-2,barW+4,barH+4);
   const pct = Math.max(0, state.player.hp / state.player.maxHp);
@@ -407,7 +400,32 @@ function drawHUD(){
   ctx.strokeStyle="#000"; ctx.strokeRect(barX-2,barY-2,barW+4,barH+4);
   ctx.fillStyle="#fff"; ctx.font="12px system-ui, Arial"; ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX+6, barY+10);
   ctx.fillText(`Lives: ${state.player.lives}`, barX+160, barY+10);
-  ctx.fillStyle="#ffd"; ctx.fillText("Enemies: "+enemies.length,16,144);
+  ctx.fillStyle="#ffd"; ctx.fillText("Enemies: " + enemies.length, 16, 144);
+
+  // Top-right: owned guns HUD
+  const padding = 8;
+  const iconSize = 12;
+  const startX = canvas.width - padding;
+  let y = padding + 6;
+  ctx.textAlign = "right";
+  ctx.font = "13px system-ui, Arial";
+  ctx.fillStyle = "#fff";
+  ctx.fillText("Guns", startX, y);
+  y += 16;
+  ctx.font = "11px system-ui, Arial";
+  const ownedList = Object.keys(WEAPON_CONFIG);
+  for (let gid of ownedList) {
+    const unlocked = !!state.ownedGuns[gid];
+    const color = unlocked ? WEAPON_CONFIG[gid].color : "rgba(255,255,255,0.18)";
+    // swatch
+    ctx.fillStyle = color;
+    ctx.fillRect(startX - 12, y - iconSize + 2, iconSize, iconSize);
+    // label (highlight equipped)
+    ctx.fillStyle = (state.equippedGun === gid) ? "#ffd" : (unlocked ? "#fff" : "#888");
+    ctx.fillText(gid, startX - 18, y + 2);
+    y += 18;
+  }
+  ctx.textAlign = "start";
 }
 
 // ---------- Physics update ----------
@@ -432,27 +450,13 @@ function updatePhysics(dt){
 
   cameraOffsetX = state.player.x - canvas.width / 2;
 
-  // Wall collision (prevent player crossing into walls)
-  // We treat walls as vertical rectangles centered at leftWallX / rightWallX with half-thickness leftWallHalf/rightWallHalf
+  // Wall collision
   if (ENABLE_WALLS) {
-    // left wall
-    const leftWallLeftX = leftWallX - leftWallHalf;
     const leftWallRightX = leftWallX + leftWallHalf;
-    if (state.player.x < leftWallRightX) {
-      // push player to the right edge of left wall
-      state.player.x = leftWallRightX;
-      if (state.player.vx < 0) state.player.vx = 0;
-    }
-    // right wall
+    if (state.player.x < leftWallRightX) { state.player.x = leftWallRightX; if (state.player.vx < 0) state.player.vx = 0; }
     const rightWallLeftX = rightWallX - rightWallHalf;
-    const rightWallRightX = rightWallX + rightWallHalf;
-    if (state.player.x + state.player.w > rightWallLeftX) {
-      // push player to the left edge of right wall
-      state.player.x = rightWallLeftX - state.player.w;
-      if (state.player.vx > 0) state.player.vx = 0;
-    }
+    if (state.player.x + state.player.w > rightWallLeftX) { state.player.x = rightWallLeftX - state.player.w; if (state.player.vx > 0) state.player.vx = 0; }
   }
-
 
   // collisions with platforms
   state.player.onGround = false;
@@ -466,12 +470,18 @@ function updatePhysics(dt){
   if(state.player.x + canvas.width > worldRightX - EXPAND_THRESHOLD){
     const newStart = worldRightX + 16;
     const newP = generatePlatforms(newStart, WORLD_EXPANSION_CHUNKS);
-    platforms.push(...newP); spawnEnemiesOn(newP); spawnDoorsOn(newP,false); worldRightX = computeTerrainEnd();
+    platforms.push(...newP);
+    spawnEnemiesOn(newP);
+    spawnDoorsOn(newP,false);
+    worldRightX = computeTerrainEnd();
   }
   if(state.player.x < worldLeftX + EXPAND_THRESHOLD){
     const startX = worldLeftX - (WORLD_EXPANSION_CHUNKS * 96);
     const newP = generatePlatforms(startX, WORLD_EXPANSION_CHUNKS);
-    platforms.push(...newP); spawnEnemiesOn(newP); spawnDoorsOn(newP,false); worldLeftX = Math.min(...platforms.map(p=>p.x));
+    platforms.push(...newP);
+    spawnEnemiesOn(newP);
+    spawnDoorsOn(newP,false);
+    worldLeftX = Math.min(...platforms.map(p=>p.x));
   }
 
   // enemies
@@ -482,47 +492,84 @@ function updatePhysics(dt){
     e.update(dt);
     for(let b of bullets) if(b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y){ e.applyDamage(b.damage || 1, Math.sign(b.vx || 1)); b.vx = 0; b.vy = 0; }
     if(state.player.x < e.x + e.w && state.player.x + state.player.w > e.x && state.player.y < e.y + e.h && state.player.y + state.player.h > e.y){ damagePlayer(1, e.vx || 0); state.player.vy = -JUMP_SPEED * 0.5; }
-    if(e.hp <= 0){ if(toggleLoot && toggleLoot.checked) lootDrops.push(new Loot(e.x, e.y, rng()<0.5?"tech":"gun")); enemies.splice(i,1); }
+    if(e.hp <= 0){
+      if(toggleLoot && toggleLoot.checked) {
+        // tech drop
+        if (rng() < DROP_RATE_TECH) lootDrops.push(new Loot(e.x, e.y, "tech"));
+        // gun drop: prefer unowned guns
+        // gun drop: choose weapon by weight, prefer unowned weapons
+      if (rng() < DROP_RATE_GUN) {
+        const gunKeys = Object.keys(WEAPON_CONFIG);
+        // prefer unowned guns if any
+        const unowned = gunKeys.filter(k => !state.ownedGuns[k]);
+        let candidateKeys = unowned.length > 0 ? unowned : gunKeys;
+
+        // build cumulative weights
+        const weights = candidateKeys.map(k => (WEAPON_CONFIG[k].dropWeight || 1));
+        const total = weights.reduce((s, w) => s + w, 0);
+        let r = rng() * total;
+        let chosen = candidateKeys[0];
+        for (let i = 0; i < candidateKeys.length; i++) {
+          r -= weights[i];
+          if (r <= 0) { chosen = candidateKeys[i]; break; }
+        }
+        lootDrops.push(new Loot(e.x, e.y, "gun_" + chosen));
+      }
+
+      }
+      enemies.splice(i,1);
+    }
   }
 
   // bullets
   for(let i=bullets.length-1;i>=0;i--){
-    const b = bullets[i]; b.x += b.vx * dt; b.y += b.vy * dt; b.angle = Math.atan2(b.vy||0,b.vx||0);
-    if(b.x - cameraOffsetX > canvas.width + 200 || (Math.abs(b.vx) < 1 && Math.abs(b.vy||0) < 1)) bullets.splice(i,1);
-    // inside bullets loop, after b.x/b.y update and angle update
+    const b = bullets[i];
+    b.x += b.vx * dt; b.y += b.vy * dt; b.angle = Math.atan2(b.vy||0,b.vx||0);
     if (ENABLE_WALLS) {
       const bWorldX = b.x;
-      // left wall rect
-      const lwLeft = leftWallX - leftWallHalf;
       const lwRight = leftWallX + leftWallHalf;
-      if (bWorldX < lwRight) { bullets.splice(i, 1); continue; }
-      // right wall rect
       const rwLeft = rightWallX - rightWallHalf;
-      if (bWorldX > rwLeft) { bullets.splice(i, 1); continue; }
+      if (bWorldX < lwRight || bWorldX > rwLeft) { bullets.splice(i,1); continue; }
     }
-
-
+    if(b.x - cameraOffsetX > canvas.width + 200 || (Math.abs(b.vx) < 1 && Math.abs(b.vy||0) < 1)) bullets.splice(i,1);
   }
   for(let i=enemyBullets.length-1;i>=0;i--){
     const eb = enemyBullets[i]; eb.x += eb.vx * dt; eb.y += eb.vy * dt; eb.angle = Math.atan2(eb.vy||0, eb.vx||0);
     if(eb.x < state.player.x + state.player.w && eb.x + eb.w > state.player.x && eb.y < state.player.y + state.player.h && eb.y + eb.h > state.player.y){ damagePlayer(eb.damage||1, eb.vx||0); enemyBullets.splice(i,1); }
-    if (ENABLE_WALLS) {
-    ctx.fillStyle = "#222";
-    // left wall rectangle (centered at leftWallX)
-    ctx.fillRect(leftWallX - leftWallHalf - cameraOffsetX, -2000, WALL_THICKNESS, 4000);
-    // right wall rectangle
-    ctx.fillRect(rightWallX - rightWallHalf - cameraOffsetX, -2000, WALL_THICKNESS, 4000);
+    else {
+      if (ENABLE_WALLS) {
+        const lwRight = leftWallX + leftWallHalf;
+        const rwLeft = rightWallX - rightWallHalf;
+        if (eb.x < lwRight || eb.x > rwLeft) { enemyBullets.splice(i,1); continue; }
+      }
+      if(eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) enemyBullets.splice(i,1);
     }
-
-    else if(eb.x - cameraOffsetX < -200 || eb.x - cameraOffsetX > canvas.width + 200) enemyBullets.splice(i,1);
   }
 
   // loot pickup
   for(let i=lootDrops.length-1;i>=0;i--){
     const l = lootDrops[i];
     if(state.player.x < l.x + l.w && state.player.x + state.player.w > l.x && state.player.y < l.y + l.h && state.player.y + state.player.h > l.y){
-      if(l.type === "tech") pickupRandomTech();
-      else { const gunKeys = Object.keys(WEAPON_CONFIG); state.equippedGun = gunKeys[Math.floor(rng()*gunKeys.length)]; }
+      if (l.type === "tech") {
+        const techKeys = Object.keys(TECH_CATALOG);
+        const pick = techKeys[Math.floor(rng() * techKeys.length)];
+        applyTech(pick);
+      } else if (typeof l.type === "string" && l.type.startsWith("gun_")) {
+        const gunId = l.type.slice(4);
+        if (WEAPON_CONFIG[gunId]) {
+          state.ownedGuns[gunId] = true;
+          // optional: auto-equip new gun — uncomment next line if desired
+          // state.equippedGun = gunId;
+        } else {
+          const gunKeys = Object.keys(WEAPON_CONFIG);
+          state.ownedGuns[gunKeys[Math.floor(rng()*gunKeys.length)]] = true;
+        }
+      } else {
+        // legacy gun pickup: unlock a random gun
+        const gunKeys = Object.keys(WEAPON_CONFIG);
+        const pick = gunKeys[Math.floor(rng() * gunKeys.length)];
+        state.ownedGuns[pick] = true;
+      }
       lootDrops.splice(i,1);
     }
   }
@@ -545,45 +592,35 @@ function updatePhysics(dt){
 // ---------- Render ----------
 function render(){
   ctx.save();
-  // shake offset
   let shakeOffsetX = 0, shakeOffsetY = 0;
   if(shake.time > 0){ const s = shake.intensity * (shake.time / 0.18); shakeOffsetX = (Math.random()*2-1)*s; shakeOffsetY = (Math.random()*2-1)*s; }
   ctx.clearRect(0,0,canvas.width,canvas.height);
   ctx.translate(Math.floor(shakeOffsetX), Math.floor(shakeOffsetY));
 
-  // walls
-  if(ENABLE_WALLS){ ctx.fillStyle="#222"; ctx.fillRect(leftWallX - cameraOffsetX, -2000, 8, 4000); ctx.fillRect(rightWallX - cameraOffsetX, -2000, 8, 4000); }
+  // thick walls
+  if(ENABLE_WALLS){
+    ctx.fillStyle = "#222";
+    ctx.fillRect(leftWallX - leftWallHalf - cameraOffsetX, -2000, WALL_THICKNESS, 4000);
+    ctx.fillRect(rightWallX - rightWallHalf - cameraOffsetX, -2000, WALL_THICKNESS, 4000);
+  }
 
-  // draw platforms, enemies
   for(let plat of platforms) plat.draw();
   for(let e of enemies) e.draw();
 
-  // bullets (rotated)
-  for(let b of bullets){
-    ctx.save();
-    const bx = b.x - cameraOffsetX, by = b.y, cx = bx + b.w/2, cy = by + b.h/2;
-    ctx.translate(cx, cy); ctx.rotate(b.angle || 0); ctx.fillStyle = b.color; ctx.fillRect(-b.w/2, -b.h/2, b.w, b.h); ctx.restore();
-  }
-  for(let eb of enemyBullets){
-    ctx.save();
-    const ex = eb.x - cameraOffsetX, ey = eb.y, cx = ex + eb.w/2, cy = ey + eb.h/2;
-    ctx.translate(cx, cy); ctx.rotate(eb.angle || 0); ctx.fillStyle = eb.color; ctx.fillRect(-eb.w/2, -eb.h/2, eb.w, eb.h); ctx.restore();
-  }
+  // bullets rotated
+  for(let b of bullets){ ctx.save(); const bx=b.x-cameraOffsetX, by=b.y, cx=bx+b.w/2, cy=by+b.h/2; ctx.translate(cx,cy); ctx.rotate(b.angle || 0); ctx.fillStyle=b.color; ctx.fillRect(-b.w/2,-b.h/2,b.w,b.h); ctx.restore(); }
+  for(let eb of enemyBullets){ ctx.save(); const ex=eb.x-cameraOffsetX, ey=eb.y, cx=ex+eb.w/2, cy=ey+eb.h/2; ctx.translate(cx,cy); ctx.rotate(eb.angle || 0); ctx.fillStyle=eb.color; ctx.fillRect(-eb.w/2,-eb.h/2,eb.w,eb.h); ctx.restore(); }
 
-  // loot & doors & player
   for(let l of lootDrops) l.draw();
   for(let d of doors) d.draw();
   ctx.fillStyle = state.player.color; ctx.fillRect(state.player.x - cameraOffsetX, state.player.y, state.player.w, state.player.h);
 
-  // aim indicator
   ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1;
-  ctx.beginPath(); const px = state.player.x + state.player.w/2 - cameraOffsetX, py = state.player.y + state.player.h/2;
-  ctx.moveTo(px, py); ctx.lineTo(mouseX, mouseY); ctx.stroke();
+  ctx.beginPath(); const px = state.player.x + state.player.w/2 - cameraOffsetX, py = state.player.y + state.player.h/2; ctx.moveTo(px,py); ctx.lineTo(mouseX, mouseY); ctx.stroke();
 
   drawHUD();
   ctx.restore();
 
-  // auto-fire attempt (will be rate-limited)
   handleAutoFire();
 }
 
@@ -602,4 +639,6 @@ function run(nowMs){
 function computeTerrainEnd(){ let maxX=0; for(let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
 
 // ---------- Start ----------
-updateHUD(); lastFrameTimeMs = performance.now(); requestAnimationFrame(run);
+updateHUD();
+lastFrameTimeMs = performance.now();
+requestAnimationFrame(run);
