@@ -26,3 +26,5 @@ v1.0 - October 31, 2025
 v1.1 - October 31, 2025
 - Changed global attack speed to a multiplier rather than a cap
 - Removed non functional changelog display, it will be implemented at a later date.
+v1.1.1 - October 31, 2025
+- Lowered default attack speed to 0.5
