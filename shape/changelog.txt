@@ -1,0 +1,8 @@
+v1.0 - October 31, 2025
+- Added unlockable weapons
+- Added door spawn tuning
+- Added platform generation controls
+- Fixed wall collision bugs
+- Added changelog
+- Added more settings
+- Fixed techs being reset on world 

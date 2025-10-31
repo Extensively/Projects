@@ -137,6 +137,25 @@ if (toggleBtn && settingsBody) {
 }
 if (regenSeedBtn) regenSeedBtn.addEventListener("click", () => { reseed(Math.floor(Math.random() * 1e9)); resetWorld(); });
 
+const changelogBtn = document.getElementById("showChangelog");
+const changelogDisplay = document.getElementById("changelogDisplay");
+
+if (changelogBtn && changelogDisplay) {
+  changelogBtn.addEventListener("click", () => {
+    fetch("changelog.txt")
+      .then(response => {
+        if (!response.ok) throw new Error("Failed to load changelog");
+        return response.text();
+      })
+      .then(text => {
+        changelogDisplay.textContent = text;
+      })
+      .catch(err => {
+        changelogDisplay.textContent = "Error loading changelog.";
+      });
+  });
+}
+
 // ---------- RNG ----------
 let seed = Math.floor(Math.random() * 1e9);
 if (seedDisplay) seedDisplay.textContent = seed;
