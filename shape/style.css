@@ -195,3 +195,11 @@ html, body {
     display: block;
     margin: 0 auto;
 }
+#debugOutput {
+    background-color: rgba(0, 0, 0, 0.8);
+    padding: 10px;
+    border-radius: 5px;
+    font-family: monospace;
+    max-height: 200px;
+    overflow-y: auto;
+}

@@ -1,4 +1,3 @@
-// Add this right after the first comment block
 function debugLog(message) {
     const debugDiv = document.getElementById('debugOutput');
     if (debugDiv) {
@@ -8,23 +7,26 @@ function debugLog(message) {
 
 // Basic error checking
 window.addEventListener('load', () => {
+    debugLog('Window loaded');
+    
     if (!canvas) {
         debugLog('ERROR: Canvas element not found');
         return;
     }
+    
     if (!ctx) {
         debugLog('ERROR: Could not get canvas context');
         return;
     }
+
+    // Test draw
+    ctx.fillStyle = '#333';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    debugLog('Initial canvas draw complete');
     
-    // Test canvas drawing
-    try {
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
-        debugLog('Canvas test draw successful');
-    } catch (e) {
-        debugLog('ERROR: Canvas draw failed: ' + e.message);
-    }
+    // Initialize game
+    init();  // Make sure you have this function defined
+    requestAnimationFrame(run);  // Start the game loop
 });
 // ---------- Config / Physics ----------
 const FIXED_HZ = 60;
@@ -118,6 +120,8 @@ let WORLD_EXPANSION_CHUNKS = expansionAmountInput ? Math.max(1, Number(expansion
 let WALL_DISTANCE = wallDistanceInput ? Math.max(200, Number(wallDistanceInput.value)) : SETTINGS_DEFAULTS.WALL_DISTANCE;
 let ENABLE_WALLS = infiniteWallsCheckbox ? infiniteWallsCheckbox.checked : SETTINGS_DEFAULTS.ENABLE_WALLS;
 let PLAYER_ATTACK_RATE = attackRateInput ? Math.max(0.1, Number(attackRateInput.value)) : SETTINGS_DEFAULTS.PLAYER_ATTACK_RATE;
+
+debugLog('Game script loaded');
 
 // bind inputs if present
 if (expansionAmountInput) expansionAmountInput.addEventListener("change", () => { WORLD_EXPANSION_CHUNKS = Math.max(1, Number(expansionAmountInput.value)); });
