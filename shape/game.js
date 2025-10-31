@@ -8,7 +8,6 @@ function debugLog(message) {
 // Basic error checking
 window.addEventListener('load', () => {
     debugLog('Window loaded');
-    
     if (!canvas) {
         debugLog('ERROR: Canvas element not found');
         return;
@@ -157,7 +156,9 @@ const TECH_CATALOG = {
   regen_boost: { id:"regen_boost", name:"HP Regen", description:"Restore 1 HP every 2s", apply(s){ s.player.regen += 0.5 }, revert(s){ s.player.regen = Math.max(0,s.player.regen-0.5) } },
   invuln_ext: { id:"invuln_ext", name:"Extended Invuln", description:"Increase invuln seconds", apply(s){ s.player.invulnSec = (s.player.invulnSec||GAME_CONFIG.playerInvulnSec)+0.66 }, revert(s){ s.player.invulnSec = Math.max(0.1, (s.player.invulnSec||GAME_CONFIG.playerInvulnSec)-0.66) } },
   damage_amp: { id:"damage_amp", name:"Damage Amp", description:"Increase damage", apply(s){ s.player.damageMult *= 1.5 }, revert(s){ s.player.damageMult /= 1.5 } },
-  extra_life: { id:"extra_life", name:"Extra Life", description:"Gain one life", apply(s){ s.player.lives += 1 }, revert(s){ s.player.lives = Math.max(0, s.player.lives-1) } }
+  extra_life: { id:"extra_life", name:"Extra Life", description:"Gain one life", apply(s){ s.player.lives += 1 }, revert(s){ s.player.lives = Math.max(0, s.player.lives-1) } },
+  double_jump: { id:"double_jump", name:"Double Jump", description:"Allows an extra jump in mid-air", apply(s){ s.player.jumpCount += 1 }, revert(s){ s.player.jumpCount = Math.max(0, s.player.jumpCount-1) } },
+  dash: { id:"dash", name:"Dash", description:"Allows a quick dash in the direction you're facing", apply(s){ s.player.dash = true }, revert(s){ s.player.dash = false } }
 };
 
 // ---------- State ----------
@@ -608,7 +609,7 @@ function updatePhysics(dt){
   for(let i=doors.length-1;i>=0;i--){
     const d = doors[i];
     if(state.player.x < d.x + d.w && state.player.x + state.player.w > d.x && state.player.y < d.y + d.h && state.player.y + state.player.h > d.y){
-      state.floor = (state.floor||0) + 1; pickupRandomTech(); reseed(Math.floor(Math.random()*1e9)); resetWorld(); break;
+      state.floor = (state.floor||0) + 1; reseed(Math.floor(Math.random()*1e9)); resetWorld(); break;
     }
   }
 
