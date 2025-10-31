@@ -23,3 +23,6 @@ v1.0 - October 31, 2025
 - Added changelog
 - Added more settings
 - Fixed techs being reset on world 
+v1.1 - October 31, 2025
+- Changed global attack speed to a multiplier rather than a cap
+- Removed non functional changelog display, it will be implemented at a later date.
