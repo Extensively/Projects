@@ -15,6 +15,7 @@ const JUMP_SPEED = 12 * FPS_BASIS;
 const GRAVITY = 0.5 * FPS_BASIS * FPS_BASIS;
 const ENEMY_PATROL_SPEED = 1.5 * FPS_BASIS;
 const BULLET_SPEED_SCALE = FPS_BASIS;
+const shake = { intensity: 0, time: 0 };
 
 // ---------- DOM / Settings ----------
 const canvas = document.getElementById("gameCanvas");
@@ -140,6 +141,7 @@ const state = {
   equippedGun: "basic",
   floor: 1
 };
+let cameraOffsetX = 0;
 
 // ---------- Particle pool ----------
 const PARTICLE_POOL = []; for (let i=0;i<120;i++) PARTICLE_POOL.push({ active:false });
