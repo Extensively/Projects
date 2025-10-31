@@ -203,3 +203,13 @@ html, body {
     max-height: 200px;
     overflow-y: auto;
 }
+#changelogDisplay {
+    display: none;
+    white-space: pre-wrap;
+    background: #111;
+    color: #ccc;
+    padding: 8px;
+    margin-top: 8px;
+    max-height: 300px;
+    overflow: auto;
+}

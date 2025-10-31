@@ -27,6 +27,19 @@ window.addEventListener('load', () => {
     init();  // Make sure you have this function defined
     requestAnimationFrame(run);  // Start the game loop
 });
+// Add near your other DOM element selections
+const showChangelogBtn = document.getElementById('showChangelog');
+const changelogDisplay = document.getElementById('changelogDisplay');
+
+// Add the click handler
+showChangelogBtn.addEventListener('click', () => {
+    const isHidden = changelogDisplay.style.display === 'none';
+    changelogDisplay.style.display = isHidden ? 'block' : 'none';
+    showChangelogBtn.textContent = isHidden ? 'Hide Changelog' : 'Show Changelog';
+});
+
+// Initialize changelog as hidden
+changelogDisplay.style.display = 'none';
 // ---------- Config / Physics ----------
 const FIXED_HZ = 60;
 const FIXED_DT = 1 / FIXED_HZ;
