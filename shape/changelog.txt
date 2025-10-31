@@ -1,3 +1,20 @@
+VA.B.C
+A = Major Update
+B = Content Update
+C = Bug patch / Minor
+
+PRE 1.0 - October 29-31 2025 (In order)
+- Added 3 Guns
+- 5 Techs
+- Platforms
+- 1 level
+- Seeded generation
+- Enemies
+- Enemy AI
+- Enemy Attacks
+- I Frames
+- Particles
+- Screen Shake
 v1.0 - October 31, 2025
 - Added unlockable weapons
 - Added door spawn tuning
