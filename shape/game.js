@@ -156,7 +156,7 @@ GAME_CONFIG.playerSpeedMult = 1.0;   // multiplier applied to movement speed
 // Luck: percent (0..100) increases drop chances and upgrade rarity bias
 GAME_CONFIG.playerLuckPct = 0; // percent luck
 // player attack speed multiplier (1.0 = normal)
-GAME_CONFIG.playerAttackMult = 0.5;
+GAME_CONFIG.playerAttackMult = 0.05;
 const WEAPON_CONFIG = { 
   
   // pierce: how many additional targets the projectile can pass through (0 = no piercing)
