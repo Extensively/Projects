@@ -78,6 +78,3 @@ v1.4 - November 5, 2025 - The statistics and settings Update
 
 v1.4.1 - November 5, 2025
 - Changed attributes to a percentage system.
-
-v1.4.2 - November 5, 2025
-- Heavily nerfed attributes.
