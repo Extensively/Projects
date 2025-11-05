@@ -1,4 +1,4 @@
-VA.B.C
+vA.B.C
 A = Major Update
 B = Content Update
 C = Bug patch / Minor
@@ -15,7 +15,10 @@ PRE 1.0 - October 29-31 2025 (In order)
 - I Frames
 - Particles
 - Screen Shake
-v1.0 - October 31, 2025
+
+
+========================================================
+v1.0 - October 31, 2025 - Release
 - Added unlockable weapons
 - Added door spawn tuning
 - Added platform generation controls
@@ -23,8 +26,43 @@ v1.0 - October 31, 2025
 - Added changelog
 - Added more settings
 - Fixed techs being reset on world 
-v1.1 - October 31, 2025
+
+
+========================================================
+v1.1 - October 31, 2025 - Attribute Update
 - Changed global attack speed to a multiplier rather than a cap
 - Removed non functional changelog display, it will be implemented at a later date.
+
 v1.1.1 - October 31, 2025
 - Lowered default attack speed to 0.5
+
+
+========================================================
+v1.2 - November 5, 2025 - Weapons Update
+- Added 2 new guns
+- fixed tech from resetting after each floor
+- added weapon peirce
+- added weapon spread visualiser
+- added more customizable weapon spread
+- added a way to customize weapon stats mid game
+
+v1.2.1 - November 5, 2025
+- finally fixed changelog display
+
+========================================================
+v1.3 - November 5, 2025 - Game Update
+- added a main menu!
+- added pause screen!
+- wider screen!
+- game saves!
+
+v1.3.1 - November 5, 2025
+- fixed old menu 
+
+v1.3.2 - November 5, 2025
+- fixed particles!
+- added customizable options
+
+v1.3.3 - November 5, 2025
+- fixed menu ai interracting with level that player is enterred into.
+- reverted larger screen size due to hud breaks, it will be implemented later.

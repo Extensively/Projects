@@ -4,7 +4,7 @@
   <link rel="icon" type="image/gif" href="https://extensively.github.io/Projects/img/roach.gif">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shapez V1.1.1</title>
+  <title>Shapez V1.3.0</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body style="color: #FFFFFF;">
@@ -22,8 +22,30 @@
 <a href="https://forms.gle/p36Qi4Lzpem137ut5" target="_blank">clic to add stuff to game</a>
 <br>
   <div id="app">
-    <div id="gameArea">
-      <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <div id="gameArea" style="position:relative;">
+  <canvas id="gameCanvas" width="800" height="600"></canvas>
+
+      <!-- Main Menu overlay (canvas-only) -->
+      <div id="mainMenu" style="position:absolute; left:0; top:0; width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:1300;">
+        <div style="background:#111; padding:20px; border:2px solid #444; width:360px; text-align:center; color:#fff;">
+          <h2>Shapez</h2>
+          <p>Press Play to start</p>
+          <button id="mm_play">Play</button>
+          <button id="mm_resetSave" style="margin-left:8px;">Reset Save</button>
+          <div style="margin-top:12px; font-size:13px; color:#ddd;">Use Esc to Pause</div>
+        </div>
+      </div>
+
+      <!-- Pause overlay (canvas-only) -->
+      <div id="pauseOverlay" style="position:absolute; left:0; top:0; width:100%; height:100%; display:none; align-items:center; justify-content:center; background:rgba(0,0,0,0.6); z-index:1300;">
+        <div style="background:#111; padding:18px; border:2px solid #444; width:300px; text-align:center; color:#fff;">
+          <h2>Paused</h2>
+          <button id="pause_resume">Resume</button>
+          <button id="pause_save" style="margin-left:8px;">Save</button>
+          <button id="pause_quit" style="margin-left:8px;">Main Menu</button>
+        </div>
+      </div>
+
     </div>
     <aside id="settings">
       <button id="toggleSettings">Settings ▸</button>
@@ -37,7 +59,7 @@
         <div>Cycle weapons: Q</div>
         <h3>World</h3>
         <label>Door spawn chance (per platform):
-          <input id="doorSpawnRate" type="number" min="0" max="1" step="0.01" value="0.12" />
+          <input id="doorSpawnRate" type="number" min="0" max="1" step="0.01" value="0.02" />
         </label>
         <label>Expansion amount:
           <input id="expansionAmount" type="number" min="1" max="50" value="10" />
@@ -54,6 +76,31 @@
           <label>Attack rate (shots/sec):
             <input id="attackRateInput" type="number" min="0.01" max="200" step="0.05" value="0.5" />
           </label>
+        <h4>Weapon Stats (selected)</h4>
+          <div id="weaponStats">
+            <label>Damage: <span id="ws_damage_val">-</span>
+              <input id="ws_damage" type="range" min="1" max="20" step="1" value="1" />
+            </label>
+            <label>Speed: <span id="ws_speed_val">-</span>
+              <input id="ws_speed" type="range" min="1" max="40" step="1" value="8" />
+            </label>
+            <label>Pierce (count): <span id="ws_pierce_val">-</span>
+              <input id="ws_pierce" type="range" min="0" max="8" step="1" value="0" />
+            </label>
+            <label>Pierce Damage Loss: <span id="ws_pdl_val">-</span>
+              <input id="ws_pdl" type="range" min="0" max="100" step="1" value="0" />
+            </label>
+            <label>Spread (bullets): <span id="ws_spread_val">-</span>
+              <input id="ws_spread" type="range" min="1" max="9" step="1" value="1" />
+            </label>
+            <label>Spread Angle (deg): <span id="ws_spread_angle_val">-</span>
+              <input id="ws_spread_angle" type="range" min="0" max="90" step="1" value="10" />
+            </label>
+            <div style="margin-top:6px;">
+              <button id="ws_reset">Reset weapon to defaults</button>
+              <label style="margin-left:12px;"><input id="showSpread" type="checkbox" checked /> Show spread angle on canvas</label>
+            </div>
+          </div>
         <h3>Drops</h3>
           <label>Tech drop rate (per enemy)
             <input id="dropRateTech" type="number" min="0" max="1" step="0.01" value="0.12" />
@@ -95,8 +142,27 @@
 
         <h3>Debug</h3>
         <button id="regenSeed">Regenerate Seed</button>
+        <button id="toggleChangelog" style="margin-left:12px;">Toggle Changelog</button>
+        
+        <h4 style="margin-top:12px;">Particles</h4>
+        <label>Particle color A: <input id="particleColorA" type="color" value="#ffd066" /></label>
+        <label style="margin-left:8px;">Particle color B: <input id="particleColorB" type="color" value="#ff66a0" /></label>
+        <div style="margin-top:6px;">
+          <label><input id="particleUseTwo" type="checkbox" checked /> Use two colours</label>
+        </div>
+        <label style="display:block; margin-top:6px;">Particles / hit: <input id="particleAmount" type="number" min="0" max="200" value="12" /></label>
+        <label style="display:block;">Particle life (sec): <input id="particleLife" type="number" min="0.05" max="5" step="0.05" value="0.5" /></label>
+        <label style="display:block;">Particle size (px): <input id="particleSize" type="number" min="1" max="16" value="2" /></label>
       </div>
     </aside>
+    <div id="changelogPanel" style="display:none; position:fixed; right:8px; top:88px; width:340px; height:76%; background:#0b0b0b; color:#ddd; overflow:auto; padding:12px; border:1px solid #333; z-index:1200;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+        <strong>Changelog</strong>
+        <button id="closeChangelog">Close</button>
+      </div>
+      <pre id="changelogContent" style="white-space:pre-wrap; font-family:monospace; font-size:13px; color:#ddd;">Loading...</pre>
+    </div>
+    <!-- Removed duplicate fixed-position overlays (we keep the canvas-only overlays inside #gameArea) -->
   </div>
   <script src="game.js"></script>
 <div id="debugOutput" style="color: red; position: fixed; top: 10px; right: 10px; z-index: 1000;"></div>

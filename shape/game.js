@@ -23,8 +23,8 @@ window.addEventListener('load', () => {
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     debugLog('Initial canvas draw complete');
     
-    // Initialize game
-    init();  // Make sure you have this function defined
+  // Initialize game
+  init();  // Make sure you have this function defined
     requestAnimationFrame(run);  // Start the game loop
 });
 
@@ -56,6 +56,8 @@ const livesDisplay = document.getElementById("livesDisplay");
 
 // wall visual / collision thickness (px)
 const WALL_THICKNESS = 40;
+
+// (fixed canvas size is used to preserve original HUD and aiming math)
 
 // new settings inputs (optional in index.html)
 const expansionAmountInput = document.getElementById("expansionAmount");
@@ -148,10 +150,17 @@ function reseed(newSeed) { seed = newSeed | 0; rng = mulberry32(seed); if (seedD
 // ---------- Game config / techs / weapons ----------
 const GAME_CONFIG = { playerBaseMaxHp: 10, playerBaseLives: 3, playerInvulnSec: 1.0, playerHpRegenPerSec: 0, respawnInvulnSec: 2.0, screenShakeIntensityOnHit: 6, particleCountOnHit: 12 };
 const WEAPON_CONFIG = { 
-  basic:  { speed:  8, color: "#fff", damage: 1, spread: false, attackRate: 6.0,  dropWeight: 40 }, // common, moderate fire
-  laser:  { speed: 12, color: "#0ff", damage: 2, spread: false, attackRate: 2.5,  dropWeight: 15 }, // stronger, slower
-  spread: { speed:  7, color: "#f0f", damage: 1, spread: true,  attackRate: 3.0,  dropWeight: 10 }  // multi-shot, mid speed
+  // pierce: how many additional targets the projectile can pass through (0 = no piercing)
+  // pierceDamageLoss: fraction [0..1] of damage lost per pierce (e.g. 0.25 loses 25% of damage each pierce)
+  basic:  { speed:  8, color: "#fff", damage: 1, spreadCount: 1, spreadAngle: 0, attackRate: 6.0,  dropWeight: 40, pierce: 0, pierceDamageLoss: 0.0 }, // common, moderate fire
+  laser:  { speed: 12, color: "#0ff", damage: 2, spreadCount: 1, spreadAngle: 0, attackRate: 2.5,  dropWeight: 15, pierce: 1, pierceDamageLoss: 0.4 }, // stronger, slower, small pierce
+  spread: { speed:  7, color: "#f0f", damage: 1, spreadCount: 3, spreadAngle: 10,  attackRate: 3.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 },  // multi-shot, mid speed
+  railgun: { speed:  25, color: "rgba(255, 85, 0, 1)", damage: 5, spreadCount: 1, spreadAngle: 0,  attackRate: 1.0,  dropWeight: 5, pierce: 4, pierceDamageLoss: 0.35 },  // high damage, pierces several targets but loses damage each hit
+  machine_gun: { speed:  7, color: "rgba(76, 0, 255, 1)", damage: 1, spreadCount: 1, spreadAngle: 0,  attackRate: 10.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 }  // mid speed, low attack damage, high attack speed
+
 };
+// keep a deep copy of defaults so we can reset per-weapon
+const WEAPON_DEFAULTS = JSON.parse(JSON.stringify(WEAPON_CONFIG));
 const TECH_CATALOG = {
   hp_boost: { id: "hp_boost", name: "HP Boost", description: "Increase max HP by 4", apply(s){ s.player.maxHp +=4; s.player.hp +=4 }, revert(s){ s.player.maxHp -=4; if(s.player.hp>s.player.maxHp) s.player.hp=s.player.maxHp } },
   regen_boost: { id:"regen_boost", name:"HP Regen", description:"Restore 1 HP every 2s", apply(s){ s.player.regen += 0.5 }, revert(s){ s.player.regen = Math.max(0,s.player.regen-0.5) } },
@@ -174,7 +183,17 @@ const state = {
 let cameraOffsetX = 0;
 
 // ---------- Particle pool ----------
-const PARTICLE_POOL = []; for (let i=0;i<120;i++) PARTICLE_POOL.push({ active:false });
+// Particle settings (can be updated from settings UI)
+GAME_CONFIG.particleColorA = '#ffd066';
+GAME_CONFIG.particleColorB = '#ff66a0';
+GAME_CONFIG.particleUseTwo = true;
+GAME_CONFIG.particleSize = 2;
+GAME_CONFIG.particleLife = 0.5;
+GAME_CONFIG.particleCountOnHit = GAME_CONFIG.particleCountOnHit || 12;
+
+const PARTICLE_POOL = [];
+const PARTICLE_POOL_SIZE = 400; // increased to allow more simultaneous particles
+for (let i=0;i<PARTICLE_POOL_SIZE;i++) PARTICLE_POOL.push({ active:false, x:0, y:0, vx:0, vy:0, life:0, color:'#fff' });
 
 // ---------- Input / mouse aim ----------
 let keys = {};
@@ -215,7 +234,7 @@ class Enemy {
   }
   applyDamage(dmg, sourceVx=0){
     this.hp -= dmg; this.hitTimer = 0.2; this.color="#fff"; this.vx += (sourceVx||0)*0.6;
-    spawnParticles(this.x+this.w/2,this.y+this.h/2,GAME_CONFIG.particleCountOnHit); shakeScreen(1.6,0.2);
+    spawnParticles(this.x+this.w/2,this.y+this.h/2, GAME_CONFIG.particleCountOnHit || 12); shakeScreen(1.6,0.2);
   }
   update(dt){
     if(this.hitTimer>0){ this.hitTimer = Math.max(0,this.hitTimer - dt); if(this.hitTimer===0) this.color=this.baseColor; }
@@ -256,7 +275,20 @@ updateWalls();
 function spawnParticles(x,y,count){
   for(let i=0;i<PARTICLE_POOL.length && count>0;i++){
     const p = PARTICLE_POOL[i];
-    if(!p.active){ p.active=true; p.x=x; p.y=y; const ang=rng()*Math.PI*2; const spd=40 + rng()*80; p.vx=Math.cos(ang)*spd; p.vy=Math.sin(ang)*spd - 60; p.life = 0.2 + rng()*0.6; p.color = `hsl(${Math.floor(rng()*60)},80%,60%)`; count--; }
+    if(!p.active){
+      p.active = true;
+      p.x = x; p.y = y;
+      const ang = rng()*Math.PI*2;
+      const spd = 40 + rng()*80;
+      p.vx = Math.cos(ang)*spd;
+      p.vy = Math.sin(ang)*spd - 60;
+      // base life with small random variance; use configured particleLife
+      p.life = Math.max(0.05, (GAME_CONFIG.particleLife || 0.5) * (0.8 + rng()*0.4));
+      // choose color A or B
+      if(GAME_CONFIG.particleUseTwo){ p.color = (rng() < 0.5) ? GAME_CONFIG.particleColorA : GAME_CONFIG.particleColorB; }
+      else p.color = GAME_CONFIG.particleColorA;
+      count--;
+    }
   }
 }
 function updateParticles(dt){
@@ -264,7 +296,7 @@ function updateParticles(dt){
     if(!p.active) continue;
     p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 900 * dt; p.life -= dt;
     if(p.life <= 0) { p.active = false; continue; }
-    ctx.fillStyle = p.color; ctx.fillRect(p.x - cameraOffsetX, p.y, 2, 2);
+    // particle drawing moved to render() to avoid double-buffer issues
   }
 }
 function shakeScreen(amount=2, time=0.18){ shake.intensity = Math.max(shake.intensity, amount); shake.time = Math.max(shake.time, time); }
@@ -280,7 +312,7 @@ function damagePlayer(amount, sourceVx=0){
   state.player.color = "#fff";
   state.player.vx += sourceVx>0 ? 200 : -200;
   shakeScreen(GAME_CONFIG.screenShakeIntensityOnHit, 0.25);
-  spawnParticles(state.player.x + state.player.w/2, state.player.y + state.player.h/2, 8);
+  spawnParticles(state.player.x + state.player.w/2, state.player.y + state.player.h/2, Math.max(4, Math.floor((GAME_CONFIG.particleCountOnHit||12) / 2)));
   if(state.player.hp <= 0) handlePlayerDeath();
 }
 function handlePlayerDeath(){
@@ -352,7 +384,7 @@ function resetWorld(){
     doors.push(new Door(rightDoorX, rightDoorY));
   }
   state.player.x = state.player.checkpoint.x = 100; state.player.y = state.player.checkpoint.y = 100; state.player.vx = state.player.vy = 0;
-  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp; state.player.hp = state.player.maxHp; state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; /* keep state.ownedGuns persistent */ state.techs = {};
+  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp; state.player.hp = state.player.maxHp; state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; /* keep state.ownedGuns persistent */ // preserve state.techs so techs persist across floors
   // ensure an equipped gun if none
   if (!state.equippedGun) {
     const owned = Object.keys(state.ownedGuns).filter(k => state.ownedGuns[k]);
@@ -390,14 +422,29 @@ function shootBulletAtMouse(){
   const worldMouseX = mouseX + cameraOffsetX; const worldMouseY = mouseY;
   let dx = worldMouseX - originX; let dy = worldMouseY - originY; const dist = Math.hypot(dx,dy)||1; dx/=dist; dy/=dist;
   const baseSpeed = (gun.speed||8) * BULLET_SPEED_SCALE; const damage = Math.max(1, Math.round((gun.damage||1)*state.player.damageMult));
-  function pushBulletWithAngle(angleOffset, speedMultiplier=1){
+    function pushBulletWithAngle(angleOffset, speedMultiplier=1){
     const cos = Math.cos(angleOffset), sin = Math.sin(angleOffset);
     const rx = dx * cos - dy * sin, ry = dx * sin + dy * cos;
     const vx = rx * baseSpeed * speedMultiplier, vy = ry * baseSpeed * speedMultiplier;
-    bullets.push({ x: originX + rx*(state.player.w/2+4), y: originY + ry*(state.player.h/2+4), vx, vy, w:8, h:4, color: gun.color, damage, angle: Math.atan2(vy, vx) });
+    bullets.push({ x: originX + rx*(state.player.w/2+4), y: originY + ry*(state.player.h/2+4), vx, vy, w:8, h:4, color: gun.color, damage, angle: Math.atan2(vy, vx),
+      // piercing state
+      remainingPierce: (gun.pierce||0),
+      pierceDamageLoss: (gun.pierceDamageLoss||0),
+      currentDamage: damage
+    });
   }
-  if(gun.spread){ const spreadAngle = 10 * (Math.PI/180); pushBulletWithAngle(-spreadAngle); pushBulletWithAngle(0); pushBulletWithAngle(spreadAngle); }
-  else pushBulletWithAngle(0);
+  // spreadCount determines how many bullets; spreadAngle is total angle in degrees
+  const spreadCount = Math.max(1, (gun.spreadCount || 1));
+  const spreadAngleDeg = (gun.spreadAngle || 0);
+  if(spreadCount <= 1){ pushBulletWithAngle(0); }
+  else {
+    const totalRad = spreadAngleDeg * (Math.PI/180);
+    for(let si=0; si<spreadCount; si++){
+      const t = spreadCount===1 ? 0 : (si / (spreadCount - 1)); // 0..1
+      const off = (t - 0.5) * totalRad; // center spread
+      pushBulletWithAngle(off);
+    }
+  }
   noteShotFired();
 }
 
@@ -420,6 +467,21 @@ function drawHUD(){
   // left HUD (existing)
   ctx.fillStyle="rgba(0,0,0,0.45)"; ctx.fillRect(8,8,360,132);
   ctx.fillStyle="#fff"; ctx.font="14px system-ui, Arial"; ctx.fillText("Weapon: " + (state.equippedGun || "none"), 16, 28);
+  // draw equipped weapon stats on the right side below the weapon list
+  const eq = state.equippedGun && WEAPON_CONFIG[state.equippedGun];
+  if(eq){
+    ctx.font = "12px system-ui, Arial";
+    const padding = 8;
+    const startX = canvas.width - padding;
+    // compute y same as HUD weapon list start + offset (we drew 'Guns' at padding+6 and then each entry at +18, so put stats after list)
+    const statY = padding + 6 + 16 + (Object.keys(WEAPON_CONFIG).length * 18) + 6;
+    ctx.textAlign = 'right';
+    const pdlPct = Math.round((eq.pierceDamageLoss||0)*100);
+    ctx.fillStyle = "#ffd";
+    ctx.fillText(`Weapon: ${state.equippedGun}`, startX, statY);
+    ctx.fillText(`D:${eq.damage} S:${eq.speed} P:${eq.pierce} Sp:${eq.spreadCount||1} Sa:${eq.spreadAngle||0} PDL:${pdlPct}%`, startX, statY + 14);
+    ctx.textAlign = 'start';
+  }
   ctx.fillStyle="#999"; ctx.fillText("Press Q to cycle weapons", 16, 46);
   ctx.fillStyle="#9f9"; ctx.fillText("Techs: " + (Object.keys(state.techs).join(", ") || "none"), 16, 66);
   ctx.fillStyle="#ccc"; ctx.fillText("Seed: " + seed, 16, 86);
@@ -464,14 +526,239 @@ function drawHUD(){
   ctx.textAlign = "start";
 }
 
+// ---------- Weapon Stats HUD / Settings wiring ----------
+// Helper to update the small weapon stats display in the settings panel
+function updateWeaponStatsPanel(weaponId){
+  const w = WEAPON_CONFIG[weaponId];
+  const dmgEl = document.getElementById('ws_damage');
+  const spdEl = document.getElementById('ws_speed');
+  const pierceEl = document.getElementById('ws_pierce');
+  const pdlEl = document.getElementById('ws_pdl');
+  const dmgVal = document.getElementById('ws_damage_val');
+  const spdVal = document.getElementById('ws_speed_val');
+  const pierceVal = document.getElementById('ws_pierce_val');
+  const pdlVal = document.getElementById('ws_pdl_val');
+  const spreadEl = document.getElementById('ws_spread');
+  const spreadVal = document.getElementById('ws_spread_val');
+  const spreadAngleEl = document.getElementById('ws_spread_angle');
+  const spreadAngleVal = document.getElementById('ws_spread_angle_val');
+  if(!w || !dmgEl) return;
+  dmgEl.value = w.damage || 1; dmgVal.textContent = dmgEl.value;
+  spdEl.value = w.speed || 8; spdVal.textContent = spdEl.value;
+  pierceEl.value = w.pierce || 0; pierceVal.textContent = pierceEl.value;
+  spreadEl.value = (w.spreadCount||1); spreadVal.textContent = spreadEl.value;
+  spreadAngleEl.value = (w.spreadAngle||0); spreadAngleVal.textContent = spreadAngleEl.value + "°";
+  // store PDL as percent 0..100 for slider
+  pdlEl.value = Math.round((w.pierceDamageLoss||0) * 100); pdlVal.textContent = pdlEl.value + "%";
+
+  // attach listeners to update WEAPON_CONFIG live
+  function wire(el, cb){ el.oninput = cb; el.onchange = cb; }
+  wire(dmgEl, () => { w.damage = Number(dmgEl.value); dmgVal.textContent = dmgEl.value; });
+  wire(spdEl, () => { w.speed = Number(spdEl.value); spdVal.textContent = spdEl.value; });
+  wire(pierceEl, () => { w.pierce = Number(pierceEl.value); pierceVal.textContent = pierceEl.value; });
+  wire(spreadEl, () => { w.spreadCount = Math.max(1, Number(spreadEl.value)); spreadVal.textContent = spreadEl.value; });
+  wire(spreadAngleEl, () => { w.spreadAngle = Math.max(0, Number(spreadAngleEl.value)); spreadAngleVal.textContent = spreadAngleEl.value + "°"; });
+  wire(pdlEl, () => { w.pierceDamageLoss = Math.max(0, Math.min(1, Number(pdlEl.value) / 100)); pdlVal.textContent = pdlEl.value + "%"; });
+  // reset button
+  const resetBtn = document.getElementById('ws_reset');
+  if(resetBtn){ resetBtn.onclick = () => {
+    if(!WEAPON_DEFAULTS[weaponId]) return;
+    const defaults = WEAPON_DEFAULTS[weaponId];
+    // copy defaults back into weapon config
+    for(const k of Object.keys(defaults)) w[k] = defaults[k];
+    // refresh panel values
+    updateWeaponStatsPanel(weaponId);
+  }}
+  // show spread checkbox
+  const showSpreadCheckbox = document.getElementById('showSpread');
+  window._showSpread = showSpreadCheckbox ? showSpreadCheckbox.checked : true;
+  if(showSpreadCheckbox) showSpreadCheckbox.onchange = () => { window._showSpread = showSpreadCheckbox.checked; };
+}
+
+// update settings panel when cycling weapons or on equip
+document.addEventListener('keydown', (e) => {
+  if(e.code === 'KeyQ') setTimeout(() => updateWeaponStatsPanel(state.equippedGun), 50);
+});
+
+// also update on load
+window.addEventListener('load', () => { setTimeout(() => updateWeaponStatsPanel(state.equippedGun), 200); });
+
+// Changelog panel wiring
+window.addEventListener('load', () => {
+  const toggleBtn = document.getElementById('toggleChangelog');
+  const closeBtn = document.getElementById('closeChangelog');
+  const panel = document.getElementById('changelogPanel');
+  const content = document.getElementById('changelogContent');
+  if(toggleBtn && panel && content){
+    toggleBtn.onclick = async () => {
+      if(panel.style.display === 'none' || !panel.style.display){
+        // fetch changelog file
+        try{
+          const resp = await fetch('https://extensively.github.io/Projects/shape/changelog.txt');
+          const txt = await resp.text();
+          content.textContent = txt;
+        } catch(e){
+          // Friendly guidance when running the page via file:// where fetch is blocked
+          if (window && window.location && window.location.protocol === 'file:'){
+            content.textContent = "Cannot load changelog when opening the HTML file directly (file://).\n" +
+              "Most browsers block fetch() for local files. Start a simple local static server and open the page via http://localhost:PORT/ instead.\n\n" +
+              "Example (macOS / bash) - run this in the project folder then open http://localhost:8000/shape.html:\n" +
+              "  python3 -m http.server 8000\n\n" +
+              "Or, if you have Node.js installed you can run (in the project folder):\n" +
+              "  npx serve .\n\n" +
+              "After starting a server, click Toggle Changelog again.\n";
+          } else {
+            content.textContent = 'Could not load changelog: ' + (e && e.message ? e.message : String(e));
+          }
+        }
+        panel.style.display = 'block';
+      } else panel.style.display = 'none';
+    };
+  }
+  if(closeBtn && panel) closeBtn.onclick = () => { panel.style.display = 'none'; };
+});
+
+// ---------------- Persistence ----------------
+const SAVE_KEY = 'shapez_save_v1';
+function saveGame(){
+  try{
+    const payload = {
+      seed,
+      techs: state.techs,
+      ownedGuns: state.ownedGuns,
+      equippedGun: state.equippedGun,
+      weaponConfig: WEAPON_CONFIG,
+      player: { x: state.player.x, y: state.player.y, checkpoint: state.player.checkpoint, hp: state.player.hp, maxHp: state.player.maxHp }
+    };
+    localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
+    debugLog('Game saved');
+  } catch(e){ debugLog('Save failed: ' + e.message); }
+}
+function loadGame(){
+  try{
+    const raw = localStorage.getItem(SAVE_KEY);
+    if(!raw) return false;
+    const p = JSON.parse(raw);
+    if(p.seed) reseed(p.seed);
+    if(p.techs) state.techs = p.techs;
+    if(p.ownedGuns) state.ownedGuns = p.ownedGuns;
+    if(p.equippedGun) state.equippedGun = p.equippedGun;
+    if(p.weaponConfig) {
+      // merge saved weapon config (overwrite defaults)
+      for(const k of Object.keys(p.weaponConfig)) if(WEAPON_CONFIG[k]) Object.assign(WEAPON_CONFIG[k], p.weaponConfig[k]);
+    }
+    if(p.player && p.player.checkpoint) state.player.checkpoint = p.player.checkpoint;
+    debugLog('Save loaded');
+    return true;
+  } catch(e){ debugLog('Load failed: ' + e.message); return false; }
+}
+function resetSave(){ localStorage.removeItem(SAVE_KEY); debugLog('Save cleared'); }
+
+// ---------------- Main Menu / Pause ----------------
+let gamePaused = true; // start paused (main menu)
+let demoMode = false;
+let _playerBackup = null;
+let demoShootTimer = 0;
+function showMainMenu(show=true){
+  const mm = document.getElementById('mainMenu');
+  if(mm) mm.style.display = show ? 'flex' : 'none';
+  // when showing main menu we enter demo mode (AI controls player); do not pause the entire loop
+  if(show){
+    demoMode = true;
+    gamePaused = false; // allow physics to run for demo AI while main menu is visible
+    // backup player state so we can restore on Play
+    try{ _playerBackup = JSON.parse(JSON.stringify(state.player)); }catch(e){ _playerBackup = null; }
+    demoShootTimer = 0.5 + Math.random()*1.2;
+  } else {
+    demoMode = false;
+    // restore player if we have a backup
+    if(_playerBackup){
+      try{ Object.assign(state.player, _playerBackup); }catch(e){}
+      _playerBackup = null;
+    }
+  }
+}
+function showPause(show=true){ const p = document.getElementById('pauseOverlay'); if(p) p.style.display = show ? 'flex' : 'none'; gamePaused = show; }
+
+window.addEventListener('load', () => {
+  // wire menu buttons
+  const mmPlay = document.getElementById('mm_play');
+  const mmReset = document.getElementById('mm_resetSave');
+  const pauseResume = document.getElementById('pause_resume');
+  const pauseSave = document.getElementById('pause_save');
+  const pauseQuit = document.getElementById('pause_quit');
+
+  if(mmPlay) mmPlay.onclick = () => { showMainMenu(false); showPause(false); gamePaused = false; };
+  if(mmReset) mmReset.onclick = () => { resetSave(); location.reload(); };
+  if(pauseResume) pauseResume.onclick = () => { showPause(false); gamePaused = false; };
+  if(pauseSave) pauseSave.onclick = () => { saveGame(); };
+  if(pauseQuit) pauseQuit.onclick = () => { showPause(false); showMainMenu(true); };
+
+  // load save if present — keep main menu visible but apply loaded state
+  const loaded = loadGame();
+  // refresh UI panels
+  updateHUD();
+  updateWeaponStatsPanel(state.equippedGun);
+  // wire particle settings inputs if present
+  const pA = document.getElementById('particleColorA');
+  const pB = document.getElementById('particleColorB');
+  const pTwo = document.getElementById('particleUseTwo');
+  const pAmt = document.getElementById('particleAmount');
+  const pLife = document.getElementById('particleLife');
+  const pSize = document.getElementById('particleSize');
+  if(pA) { pA.value = GAME_CONFIG.particleColorA || '#ffd066'; pA.onchange = () => { GAME_CONFIG.particleColorA = pA.value; } }
+  if(pB) { pB.value = GAME_CONFIG.particleColorB || '#ff66a0'; pB.onchange = () => { GAME_CONFIG.particleColorB = pB.value; } }
+  if(pTwo) { pTwo.checked = !!GAME_CONFIG.particleUseTwo; pTwo.onchange = () => { GAME_CONFIG.particleUseTwo = !!pTwo.checked; } }
+  if(pAmt) { pAmt.value = GAME_CONFIG.particleCountOnHit || 12; pAmt.onchange = () => { GAME_CONFIG.particleCountOnHit = Math.max(0, Number(pAmt.value)); } }
+  if(pLife) { pLife.value = GAME_CONFIG.particleLife || 0.5; pLife.onchange = () => { GAME_CONFIG.particleLife = Math.max(0.01, Number(pLife.value)); } }
+  if(pSize) { pSize.value = GAME_CONFIG.particleSize || 2; pSize.onchange = () => { GAME_CONFIG.particleSize = Math.max(1, Number(pSize.value)); } }
+  // ensure menu shown until user clicks Play
+  showMainMenu(true);
+});
+
+// toggle pause with Escape
+document.addEventListener('keydown', (e) => {
+  if(e.code === 'Escape'){
+    // if main menu visible, ignore
+    const mm = document.getElementById('mainMenu');
+    if(mm && mm.style.display !== 'none') return;
+    gamePaused = !gamePaused;
+    showPause(gamePaused);
+  }
+});
+
 // ---------- Physics update ----------
 function updatePhysics(dt){
   if(shake.time>0) { shake.time = Math.max(0, shake.time - dt); } else { shake.intensity = 0; }
 
   // player input
+  // player input
   state.player.vx = 0;
-  if(keys["ArrowLeft"]||keys["KeyA"]) state.player.vx = -PLAYER_SPEED;
-  if(keys["ArrowRight"]||keys["KeyD"]) state.player.vx = PLAYER_SPEED;
+  if(demoMode){
+    // simple AI: patrol back and forth near checkpoint and shoot
+    const centerX = state.player.checkpoint.x || 100;
+    const roam = 160;
+    const targetX = centerX + Math.sin(performance.now()/1500) * roam;
+    state.player.vx = (targetX > state.player.x) ? PLAYER_SPEED * 0.6 : -PLAYER_SPEED * 0.6;
+    // occasionally jump
+    if(Math.random() < 0.002) { state.player.vy = -JUMP_SPEED * 0.8; }
+    // demo shooting at nearest enemy
+    demoShootTimer -= dt;
+    if(demoShootTimer <= 0){
+      // find nearest enemy
+      if(enemies.length>0){
+        let nearest = enemies[0]; let nd = Math.abs(nearest.x - state.player.x);
+        for(let e of enemies){ const d = Math.abs(e.x - state.player.x); if(d < nd){ nd = d; nearest = e; } }
+        // aim at nearest
+        mouseX = (nearest.x - cameraOffsetX) + nearest.w/2; mouseY = nearest.y + nearest.h/2;
+        shootBulletAtMouse();
+      }
+      demoShootTimer = 0.4 + Math.random()*1.4;
+    }
+  } else {
+    if(keys["ArrowLeft"]||keys["KeyA"]) state.player.vx = -PLAYER_SPEED;
+    if(keys["ArrowRight"]||keys["KeyD"]) state.player.vx = PLAYER_SPEED;
+  }
 
   // jump
   if((keys["Space"]||keys["KeyW"]) && (state.player.onGround || (state.techs["double_jump"] && state.player.jumpCount < 2))){
@@ -526,7 +813,27 @@ function updatePhysics(dt){
     for(let plat of platforms){ const touching = e.x < plat.x + plat.w && e.x + e.w > plat.x && e.y + e.h <= plat.y + 12 && e.y + e.h + e.vy * dt >= plat.y; if(touching){ e.vy=0; e.y = plat.y - e.h; e.onGround = true; } }
     if(e.behavior==="patrol"){ const aheadX = e.x + (e.vx>0 ? e.w + 8 : -8); let has=false; for(let plat of platforms){ if(aheadX > plat.x && aheadX < plat.x + plat.w && e.y + e.h <= plat.y + 12){ has=true; break; } } if(!has) e.vx *= -1; }
     e.update(dt);
-    for(let b of bullets) if(b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y){ e.applyDamage(b.damage || 1, Math.sign(b.vx || 1)); b.vx = 0; b.vy = 0; }
+    for(let bi=bullets.length-1; bi>=0; bi--){
+      const b = bullets[bi];
+      if(b.x < e.x + e.w && b.x + b.w > e.x && b.y < e.y + e.h && b.y + b.h > e.y){
+        // apply current damage on the bullet (respect pierce damage reductions)
+        const dmg = Math.max(1, Math.round(b.currentDamage || b.damage || 1));
+        e.applyDamage(dmg, Math.sign(b.vx || 1));
+
+        // if bullet can pierce, decrement remaining pierce and reduce damage
+        if(b.remainingPierce && b.remainingPierce > 0){
+          b.remainingPierce -= 1;
+          // reduce current damage by fraction; ensure it doesn't go negative
+          b.currentDamage = Math.max(0, (b.currentDamage||b.damage) * (1 - (b.pierceDamageLoss||0)));
+          // if damage falls below 1, remove bullet
+          if((b.currentDamage||0) < 1){ bullets.splice(bi,1); continue; }
+          // otherwise let bullet continue (do not remove)
+        } else {
+          // no pierce left -> consume the bullet
+          bullets.splice(bi,1);
+        }
+      }
+    }
     if(state.player.x < e.x + e.w && state.player.x + state.player.w > e.x && state.player.y < e.y + e.h && state.player.y + state.player.h > e.y){ damagePlayer(1, e.vx || 0); state.player.vy = -JUMP_SPEED * 0.5; }
     if(e.hp <= 0){
       if(toggleLoot && toggleLoot.checked) {
@@ -594,7 +901,6 @@ function updatePhysics(dt){
         const gunId = l.type.slice(4);
         if (WEAPON_CONFIG[gunId]) {
           state.ownedGuns[gunId] = true;
-          // optional: auto-equip new gun — uncomment next line if desired
           // state.equippedGun = gunId;
         } else {
           const gunKeys = Object.keys(WEAPON_CONFIG);
@@ -654,10 +960,37 @@ function render(){
   ctx.strokeStyle = "rgba(255,255,255,0.25)"; ctx.lineWidth = 1;
   ctx.beginPath(); const px = state.player.x + state.player.w/2 - cameraOffsetX, py = state.player.y + state.player.h/2; ctx.moveTo(px,py); ctx.lineTo(mouseX, mouseY); ctx.stroke();
 
+  // spread visualization (lines showing bullet directions) if enabled
+  if(window._showSpread){
+    const eq = state.equippedGun && WEAPON_CONFIG[state.equippedGun];
+    if(eq){
+      const spreadCount = Math.max(1, eq.spreadCount || 1);
+      const spreadAngleDeg = eq.spreadAngle || 0;
+      const totalRad = spreadAngleDeg * (Math.PI/180);
+      ctx.strokeStyle = 'rgba(200,200,80,0.7)'; ctx.lineWidth = 1;
+      for(let si=0; si<spreadCount; si++){
+        const t = spreadCount===1 ? 0 : (si / (spreadCount - 1));
+        const off = (t - 0.5) * totalRad;
+        const angle = Math.atan2(mouseY - py, (mouseX + cameraOffsetX) - (state.player.x + state.player.w/2)) + off;
+        const len = 160;
+        const ex = px + Math.cos(angle) * len;
+        const ey = py + Math.sin(angle) * len;
+        ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(ex, ey); ctx.stroke();
+      }
+    }
+  }
+
   drawHUD();
+  // draw particles (on top)
+  const pSize = Math.max(1, GAME_CONFIG.particleSize || 2);
+  for (let p of PARTICLE_POOL){
+    if(!p.active) continue;
+    ctx.fillStyle = p.color || GAME_CONFIG.particleColorA;
+    ctx.fillRect(p.x - cameraOffsetX - (pSize/2), p.y - (pSize/2), pSize, pSize);
+  }
   ctx.restore();
 
-  handleAutoFire();
+  if (!gamePaused) handleAutoFire();
 }
 
 // ---------- Main loop ----------
@@ -668,10 +1001,10 @@ function run(nowMs) {
         deltaAccumulator += deltaMs / 1000;
         deltaAccumulator = Math.min(deltaAccumulator, MAX_ACCUM_SECONDS);
 
-        while (deltaAccumulator >= FIXED_DT) {
-            updatePhysics(FIXED_DT);
-            deltaAccumulator -= FIXED_DT;
-        }
+    while (deltaAccumulator >= FIXED_DT) {
+      if (!gamePaused) updatePhysics(FIXED_DT);
+      deltaAccumulator -= FIXED_DT;
+    }
 
         render();
         requestAnimationFrame(run);
