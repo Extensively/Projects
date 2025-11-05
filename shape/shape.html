@@ -47,9 +47,34 @@
       </div>
 
     </div>
+
+    <!-- Radar panel inserted between gameArea and settings -->
+    <div id="radarPanel">
+      <div style="padding:10px; color:#ffd; font-weight:600;">Player Stats</div>
+      <canvas id="radarCanvas" width="260" height="260" style="display:block; margin:10px auto; background:transparent;"></canvas>
+      <div id="radarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
+  SPD · ATK · DMG · HP · DEF · LCK
+      </div>
+    </div>
+
     <aside id="settings">
-      <button id="toggleSettings">Settings ▸</button>
+      <style>
+        /* Smooth collapse/expand: we animate max-height */
+        .collapsible { overflow: hidden; transition: max-height 220ms ease; }
+      </style>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button id="toggleSettings">Settings ▸</button>
+        <button id="expandAll" title="Expand all settings">Expand All</button>
+        <button id="collapseAll" title="Collapse all settings">Collapse All</button>
+      </div>
       <div id="settingsBody" class="collapsed">
+        <style>
+          /* styles for draggable settings sections */
+          .settings-section { border-bottom: 1px solid rgba(255,255,255,0.03); padding:6px 0; }
+          .settings-section.dragging { opacity: 0.6; }
+          .settings-section h3, .settings-section h4 { display:flex; align-items:center; gap:6px; }
+          .settings-section h3 span[title], .settings-section h4 span[title] { display:inline-block; }
+        </style>
         <h3>Session</h3>
         <div><strong>Seed:</strong> <span id="seedDisplay">-</span></div>
         <h3>Controls</h3>
@@ -73,10 +98,7 @@
         </label>
 
         <h3>Combat</h3>
-          <label>Attack rate (shots/sec):
-            <input id="attackRateInput" type="number" min="0.01" max="200" step="0.05" value="0.5" />
-          </label>
-        <h4>Weapon Stats (selected)</h4>
+        <h3>Weapon Stats (selected)</h3>
           <div id="weaponStats">
             <label>Damage: <span id="ws_damage_val">-</span>
               <input id="ws_damage" type="range" min="1" max="20" step="1" value="1" />
@@ -108,6 +130,12 @@
           <label>Gun drop rate (per enemy)
             <input id="dropRateGun" type="number" min="0" max="1" step="0.01" value="0.12" />
           </label>
+          <div id="dropRatesInfo" style="margin-top:6px; color:#ddd; font-size:13px;">
+            Tech drop: <span id="effDropTech">-</span> (base <span id="baseDropTech">0.12</span>)
+            &nbsp;&nbsp; Gun drop: <span id="effDropGun">-</span> (base <span id="baseDropGun">0.12</span>)
+            <label style="margin-left:12px;"><input id="showRarityOdds" type="checkbox" /> Show rarity odds</label>
+          </div>
+          <div id="rarityOddsPanel" style="display:none; margin-top:6px; color:#eee; font-size:13px;"></div>
           <h3>Enemies</h3>
           <label>Enemy spawn chance (per platform)
             <input id="enemySpawnRate" type="number" min="0" max="1" step="0.01" value="0.45" />
@@ -144,7 +172,7 @@
         <button id="regenSeed">Regenerate Seed</button>
         <button id="toggleChangelog" style="margin-left:12px;">Toggle Changelog</button>
         
-        <h4 style="margin-top:12px;">Particles</h4>
+        <h3 style="margin-top:12px;">Particles</h3>
         <label>Particle color A: <input id="particleColorA" type="color" value="#ffd066" /></label>
         <label style="margin-left:8px;">Particle color B: <input id="particleColorB" type="color" value="#ff66a0" /></label>
         <div style="margin-top:6px;">
@@ -153,6 +181,49 @@
         <label style="display:block; margin-top:6px;">Particles / hit: <input id="particleAmount" type="number" min="0" max="200" value="12" /></label>
         <label style="display:block;">Particle life (sec): <input id="particleLife" type="number" min="0.05" max="5" step="0.05" value="0.5" /></label>
         <label style="display:block;">Particle size (px): <input id="particleSize" type="number" min="1" max="16" value="2" /></label>
+        
+        <h3 style="margin-top:12px;">Player Stats</h3>
+        <label>Damage (percent over baseline): <span id="ps_damage_val">0%</span>
+          <input id="ps_damage" type="range" min="0" max="200" step="1" value="0" />
+        </label>
+        <label>Attack Speed (percent over baseline): <span id="ps_attack_val">0%</span>
+          <input id="ps_attack" type="range" min="0" max="200" step="1" value="0" />
+        </label>
+        <label>Defence (% damage reduction): <span id="ps_defence_val">0%</span>
+          <input id="ps_defence" type="range" min="0" max="95" step="1" value="0" />
+        </label>
+        <label>Health (max HP boost): <span id="ps_health_val">0</span>
+          <input id="ps_health" type="range" min="0" max="300" step="1" value="0" />
+        </label>
+        <label>Speed (percent over baseline): <span id="ps_speed_val">0%</span>
+          <input id="ps_speed" type="range" min="0" max="200" step="1" value="0" />
+        </label>
+        <label>Luck (percent): <span id="ps_luck_val">0%</span>
+          <input id="ps_luck" type="range" min="0" max="100" step="1" value="0" />
+        </label>
+        
+        <h3 style="margin-top:12px;">HUD Displays</h3>
+        <div id="hudToggles">
+          <label><input type="checkbox" id="hud_weapon" checked /> Show Weapon</label>
+          <label><input type="checkbox" id="hud_tips" checked /> Show Tips</label>
+          <label><input type="checkbox" id="hud_techs" checked /> Show Techs</label>
+          <label><input type="checkbox" id="hud_seed" checked /> Show Seed</label>
+          <label><input type="checkbox" id="hud_floor" checked /> Show Floor</label>
+          <label><input type="checkbox" id="hud_platform" checked /> Show Platform Info</label>
+          <label><input type="checkbox" id="hud_enemies" checked /> Show Enemies Count</label>
+          <label><input type="checkbox" id="hud_stats" checked /> Show Player Stats</label>
+          <label><input type="checkbox" id="hud_rerolls" checked /> Show Reroll Bank</label>
+        </div>
+        <div style="margin-top:8px;">
+          <label>Give Rerolls: <input id="giveRerollsInput" type="number" min="0" value="0" style="width:64px;" /> <button id="giveRerollsBtn">Grant</button></label>
+        </div>
+        <style>
+          /* chroma animation for Divine rarity */
+          @keyframes chromaCycle { 0%{filter:hue-rotate(0deg)} 50%{filter:hue-rotate(180deg)} 100%{filter:hue-rotate(360deg)} }
+          .divine-chroma { position:relative; overflow:hidden; }
+          .divine-chroma::before{ content:''; position:absolute; left:-20%; top:-20%; width:140%; height:140%; background: linear-gradient(60deg, #ffd34d, #ff6ec7, #6ef0ff, #9dff7a); mix-blend-mode: screen; opacity:0.95; transform:translateZ(0); animation: chromaCycle 4s linear infinite; }
+          .divine-chroma > * { position:relative; z-index:2; }
+        </style>
       </div>
     </aside>
     <div id="changelogPanel" style="display:none; position:fixed; right:8px; top:88px; width:340px; height:76%; background:#0b0b0b; color:#ddd; overflow:auto; padding:12px; border:1px solid #333; z-index:1200;">
@@ -164,6 +235,7 @@
     </div>
     <!-- Removed duplicate fixed-position overlays (we keep the canvas-only overlays inside #gameArea) -->
   </div>
+  <script src="grahps.js"></script>
   <script src="game.js"></script>
 <div id="debugOutput" style="color: red; position: fixed; top: 10px; right: 10px; z-index: 1000;"></div>
 </body>

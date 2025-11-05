@@ -66,3 +66,18 @@ v1.3.2 - November 5, 2025
 v1.3.3 - November 5, 2025
 - fixed menu ai interracting with level that player is enterred into.
 - reverted larger screen size due to hud breaks, it will be implemented later.
+
+========================================================
+v1.4 - November 5, 2025 - The statistics and settings Update
+- Added setting section toggles
+- added moveable sections, keep your favs at the top!
+- Added tons more player stats!
+- Added radar graph to display stats
+- added attribute upgrades to each level!!!
+- added luck!
+
+v1.4.1 - November 5, 2025
+- Changed attributes to a percentage system.
+
+v1.4.2 - November 5, 2025
+- Heavily nerfed attributes.

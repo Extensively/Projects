@@ -116,7 +116,7 @@ let ENEMY_SPAWN_CHANCE = enemySpawnRateInput ? Math.min(1, Math.max(0, Number(en
 if (enemySpawnRateInput) enemySpawnRateInput.addEventListener("change", () => { ENEMY_SPAWN_CHANCE = Math.min(1, Math.max(0, Number(enemySpawnRateInput.value))); });
 
 // defaults and runtime params
-const SETTINGS_DEFAULTS = { WORLD_EXPANSION_CHUNKS: 10, WALL_DISTANCE: 3000, ENABLE_WALLS: true, PLAYER_ATTACK_RATE: 6 };
+const SETTINGS_DEFAULTS = { WORLD_EXPANSION_CHUNKS: 10, WALL_DISTANCE: 3000, ENABLE_WALLS: true, PLAYER_ATTACK_RATE: 1 };
 
 let WORLD_EXPANSION_CHUNKS = expansionAmountInput ? Math.max(1, Number(expansionAmountInput.value)) : SETTINGS_DEFAULTS.WORLD_EXPANSION_CHUNKS;
 let WALL_DISTANCE = wallDistanceInput ? Math.max(200, Number(wallDistanceInput.value)) : SETTINGS_DEFAULTS.WALL_DISTANCE;
@@ -149,7 +149,16 @@ function reseed(newSeed) { seed = newSeed | 0; rng = mulberry32(seed); if (seedD
 
 // ---------- Game config / techs / weapons ----------
 const GAME_CONFIG = { playerBaseMaxHp: 10, playerBaseLives: 3, playerInvulnSec: 1.0, playerHpRegenPerSec: 0, respawnInvulnSec: 2.0, screenShakeIntensityOnHit: 6, particleCountOnHit: 12 };
+// player stat defaults (editable in Settings)
+GAME_CONFIG.playerDamageMult = 1.0; // global damage multiplier applied to weapon damage
+GAME_CONFIG.playerDefencePct = 0;   // percent damage reduction applied to incoming damage (0..100)
+GAME_CONFIG.playerSpeedMult = 1.0;   // multiplier applied to movement speed
+// Luck: percent (0..100) increases drop chances and upgrade rarity bias
+GAME_CONFIG.playerLuckPct = 0; // percent luck
+// player attack speed multiplier (1.0 = normal)
+GAME_CONFIG.playerAttackMult = 0.5;
 const WEAPON_CONFIG = { 
+  
   // pierce: how many additional targets the projectile can pass through (0 = no piercing)
   // pierceDamageLoss: fraction [0..1] of damage lost per pierce (e.g. 0.25 loses 25% of damage each pierce)
   basic:  { speed:  8, color: "#fff", damage: 1, spreadCount: 1, spreadAngle: 0, attackRate: 6.0,  dropWeight: 40, pierce: 0, pierceDamageLoss: 0.0 }, // common, moderate fire
@@ -180,6 +189,8 @@ const state = {
   equippedGun: "basic",
   floor: 1
 };
+// reroll bank persists between levels
+state.rerollBank = 0;
 let cameraOffsetX = 0;
 
 // ---------- Particle pool ----------
@@ -307,10 +318,13 @@ function pickupRandomTech(){ const ks = Object.keys(TECH_CATALOG); applyTech( ks
 
 function damagePlayer(amount, sourceVx=0){
   if(state.player.invuln>0) return;
-  state.player.hp -= amount;
+  // apply defence percentage: reduce incoming damage by GAME_CONFIG.playerDefencePct percent
+  const defPct = Math.max(0, Math.min(100, GAME_CONFIG.playerDefencePct || 0));
+  const reducedAmount = Math.max(0, Math.round(amount * (1 - defPct / 100)));
+  state.player.hp -= reducedAmount;
   state.player.invuln = state.player.invulnSec || GAME_CONFIG.playerInvulnSec;
   state.player.color = "#fff";
-  state.player.vx += sourceVx>0 ? 200 : -200;
+  // knockback removed; previously altered player's vx here but was causing issues
   shakeScreen(GAME_CONFIG.screenShakeIntensityOnHit, 0.25);
   spawnParticles(state.player.x + state.player.w/2, state.player.y + state.player.h/2, Math.max(4, Math.floor((GAME_CONFIG.particleCountOnHit||12) / 2)));
   if(state.player.hp <= 0) handlePlayerDeath();
@@ -363,7 +377,7 @@ function spawnDoorsOn(platformArray, guarantee=false){
 
 // ---------- Reset world ----------
 function computeTerrainEnd(){ let maxX=0; for(let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
-function resetWorld(){
+function resetWorld(fullHeal = true){
   rng = mulberry32(seed);
   platforms = [floor];
   const initial = generatePlatforms(0, WORLD_EXPANSION_CHUNKS);
@@ -384,7 +398,9 @@ function resetWorld(){
     doors.push(new Door(rightDoorX, rightDoorY));
   }
   state.player.x = state.player.checkpoint.x = 100; state.player.y = state.player.checkpoint.y = 100; state.player.vx = state.player.vy = 0;
-  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp; state.player.hp = state.player.maxHp; state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; /* keep state.ownedGuns persistent */ // preserve state.techs so techs persist across floors
+  state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
+  if(fullHeal) state.player.hp = state.player.maxHp; else state.player.hp = Math.min(state.player.hp || 0, state.player.maxHp);
+  state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; /* keep state.ownedGuns persistent */ // preserve state.techs so techs persist across floors
   // ensure an equipped gun if none
   if (!state.equippedGun) {
     const owned = Object.keys(state.ownedGuns).filter(k => state.ownedGuns[k]);
@@ -404,7 +420,8 @@ function canFireNow() {
   // PLAYER_ATTACK_RATE remains as the global factor (from UI). It now multiplies each weapon's base attackRate.
   // If the weapon has no attackRate field, use the global value directly.
   const weaponBaseRate = (weapon && weapon.attackRate) ? Number(weapon.attackRate) : PLAYER_ATTACK_RATE;
-  const effectiveRate = weaponBaseRate * Number(PLAYER_ATTACK_RATE);
+  // effective rate combines weapon base, global PLAYER_ATTACK_RATE and player's attack multiplier
+  const effectiveRate = weaponBaseRate * Number(PLAYER_ATTACK_RATE) * (GAME_CONFIG.playerAttackMult || 1);
 
   const minDelay = 1 / effectiveRate;
   return (now - (state.player.lastShotTime || -999)) >= minDelay;
@@ -421,7 +438,9 @@ function shootBulletAtMouse(){
   const originX = state.player.x + state.player.w/2; const originY = state.player.y + state.player.h/2;
   const worldMouseX = mouseX + cameraOffsetX; const worldMouseY = mouseY;
   let dx = worldMouseX - originX; let dy = worldMouseY - originY; const dist = Math.hypot(dx,dy)||1; dx/=dist; dy/=dist;
-  const baseSpeed = (gun.speed||8) * BULLET_SPEED_SCALE; const damage = Math.max(1, Math.round((gun.damage||1)*state.player.damageMult));
+  const baseSpeed = (gun.speed||8) * BULLET_SPEED_SCALE;
+  // effective damage = weapon base * global player damage multiplier * any per-player damageMult
+  const damage = Math.max(1, Math.round((gun.damage||1) * (GAME_CONFIG.playerDamageMult || 1) * (state.player.damageMult || 1)));
     function pushBulletWithAngle(angleOffset, speedMultiplier=1){
     const cos = Math.cos(angleOffset), sin = Math.sin(angleOffset);
     const rx = dx * cos - dy * sin, ry = dx * sin + dy * cos;
@@ -466,7 +485,28 @@ function updateHUD(){ if(livesDisplay) livesDisplay.textContent = state.player.l
 function drawHUD(){
   // left HUD (existing)
   ctx.fillStyle="rgba(0,0,0,0.45)"; ctx.fillRect(8,8,360,132);
-  ctx.fillStyle="#fff"; ctx.font="14px system-ui, Arial"; ctx.fillText("Weapon: " + (state.equippedGun || "none"), 16, 28);
+  ctx.fillStyle="#fff"; ctx.font="14px system-ui, Arial";
+  // build a stack of enabled lines instead of using fixed y positions
+  const hudLeftX = 16;
+  let stackY = 28;
+  const lineH = 18;
+  // populate lines based on HUD_TOGGLES
+  const lines = [];
+  if(window.HUD_TOGGLES === undefined) window.HUD_TOGGLES = { weapon:true, tips:true, techs:true, seed:true, floor:true, platform:true, enemies:true, stats:true, rerolls:true };
+  if(window.HUD_TOGGLES.weapon) lines.push({ text: 'Weapon: ' + (state.equippedGun || 'none') });
+  if(window.HUD_TOGGLES.tips) lines.push({ text: 'Press Q to cycle weapons' });
+  if(window.HUD_TOGGLES.techs) lines.push({ text: 'Techs: ' + (Object.keys(state.techs).join(', ') || 'none') });
+  if(window.HUD_TOGGLES.seed) lines.push({ text: 'Seed: ' + seed });
+  if(window.HUD_TOGGLES.floor) lines.push({ text: 'Floor: ' + (state.floor||1) });
+  if(window.HUD_TOGGLES.platform) lines.push({ text: `Plat: size=${GEN_CHUNK_SIZE} spacing=${GEN_SPACING_X} width=${GEN_PLAT_W}` });
+  if(window.HUD_TOGGLES.enemies) lines.push({ text: 'Enemies: ' + enemies.length });
+  if(window.HUD_TOGGLES.stats) lines.push({ text: `Dmg: ${(GAME_CONFIG.playerDamageMult||1).toFixed(2)}  Def: ${Math.round(GAME_CONFIG.playerDefencePct||0)}%  Spd: ${(GAME_CONFIG.playerSpeedMult||1).toFixed(2)}` });
+  if(window.HUD_TOGGLES.rerolls) lines.push({ text: 'Rerolls: ' + (state.rerollBank || 0) });
+
+  // draw stacked lines
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'start'; ctx.font = '14px system-ui, Arial';
+  for(const ln of lines){ ctx.fillText(ln.text, hudLeftX, stackY); stackY += lineH; }
+
   // draw equipped weapon stats on the right side below the weapon list
   const eq = state.equippedGun && WEAPON_CONFIG[state.equippedGun];
   if(eq){
@@ -482,23 +522,70 @@ function drawHUD(){
     ctx.fillText(`D:${eq.damage} S:${eq.speed} P:${eq.pierce} Sp:${eq.spreadCount||1} Sa:${eq.spreadAngle||0} PDL:${pdlPct}%`, startX, statY + 14);
     ctx.textAlign = 'start';
   }
-  ctx.fillStyle="#999"; ctx.fillText("Press Q to cycle weapons", 16, 46);
-  ctx.fillStyle="#9f9"; ctx.fillText("Techs: " + (Object.keys(state.techs).join(", ") || "none"), 16, 66);
-  ctx.fillStyle="#ccc"; ctx.fillText("Seed: " + seed, 16, 86);
-  ctx.fillStyle="#9cf"; ctx.fillText("Floor: " + (state.floor||1), 16, 106);
-  ctx.fillStyle = "#cff";
-  ctx.fillText(`Plat: size=${GEN_CHUNK_SIZE} spacing=${GEN_SPACING_X} width=${GEN_PLAT_W}`, 16, 170);
-  ctx.fillText(`Height: base=${GEN_BASE_Y} var=${GEN_VAR_Y} cluster=${GEN_CLUSTER}`, 16, 186);
-
-  // HP bar
-  const barX=16, barY=120, barW=220, barH=12;
-  ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(barX-2,barY-2,barW+4,barH+4);
+  // HP bar: draw at bottom-left of canvas
+  const barW = 260, barH = 14;
+  const barX = 12;
+  const barY = canvas.height - 12 - barH; // small padding from bottom
+  ctx.fillStyle = "rgba(0,0,0,0.6)"; ctx.fillRect(barX-2, barY-2, barW+4, barH+4);
   const pct = Math.max(0, state.player.hp / state.player.maxHp);
-  ctx.fillStyle="#e44"; ctx.fillRect(barX,barY,Math.floor(barW*pct),barH);
-  ctx.strokeStyle="#000"; ctx.strokeRect(barX-2,barY-2,barW+4,barH+4);
-  ctx.fillStyle="#fff"; ctx.font="12px system-ui, Arial"; ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX+6, barY+10);
-  ctx.fillText(`Lives: ${state.player.lives}`, barX+160, barY+10);
-  ctx.fillStyle="#ffd"; ctx.fillText("Enemies: " + enemies.length, 16, 144);
+  ctx.fillStyle = "#e44"; ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
+  ctx.strokeStyle = "#000"; ctx.strokeRect(barX-2, barY-2, barW+4, barH+4);
+  ctx.fillStyle = "#fff"; ctx.font = "12px system-ui, Arial"; ctx.fillText(`HP: ${Math.floor(state.player.hp)}/${state.player.maxHp}`, barX+6, barY+11);
+  ctx.fillText(`Lives: ${state.player.lives}`, barX+170, barY+11);
+
+  // update external radar panel (if present)
+  try{
+    const radarCanvas = document.getElementById('radarCanvas');
+    if(radarCanvas && window.RadarChart){
+      // normalize stats to 0..1 for display
+  const maxValues = { speedPct:200, attack:12.0, damagePct:200, health:300.0, defencePct:95.0, luckPct:100 };
+  const labels = ['SPD','ATK','DMG','HP','DEF','LCK'];
+  const vals = [];
+  // convert percent sliders to 0..1 (0% -> 0, 100% -> 1) where current stored values are multipliers
+  const speedPct = Math.round(((GAME_CONFIG.playerSpeedMult||1) - 1) * 100);
+  vals.push( Math.min(1, speedPct / maxValues.speedPct) );
+      // attack speed: compute effective shots/sec for current weapon
+      const weapon = WEAPON_CONFIG[state.equippedGun] || {}; const weaponRate = Number(weapon.attackRate || PLAYER_ATTACK_RATE);
+      const effectiveRate = Math.min( (PLAYER_ATTACK_RATE||1) * weaponRate, maxValues.attack );
+      vals.push( Math.min(1, effectiveRate / maxValues.attack) );
+  const dmgPct = Math.round(((GAME_CONFIG.playerDamageMult||1) - 1) * 100);
+  vals.push( Math.min(1, dmgPct / maxValues.damagePct) );
+  vals.push( Math.min(1, (state.player.maxHp || GAME_CONFIG.playerBaseMaxHp) / maxValues.health) );
+  vals.push( Math.min(1, (GAME_CONFIG.playerDefencePct||0) / maxValues.defencePct) );
+  const luckPct = Math.round((GAME_CONFIG.playerLuckPct||0));
+  vals.push( Math.min(1, luckPct / maxValues.luckPct) );
+      window.RadarChart.drawRadar(radarCanvas, labels, vals, { fillColor:'rgba(80,200,255,0.07)', lineColor:'rgba(80,200,255,0.9)', pointColor:'#7be', labelColor:'#ddd' });
+    }
+  }catch(e){ /* ignore radar errors */ }
+
+  // If level menu is open, draw rarity odds on the game canvas next to the overlay
+  try{
+    if(levelMenuOpen){
+      const overlay = document.getElementById('levelMenuOverlay');
+      if(overlay){
+        const rect = overlay.getBoundingClientRect();
+        const canvasRect = canvas.getBoundingClientRect();
+        // map overlay rect into canvas-local coordinates
+        const localLeft = rect.left - canvasRect.left;
+        const localTop = rect.top - canvasRect.top;
+        const localRight = rect.right - canvasRect.left;
+        const localBottom = rect.bottom - canvasRect.top;
+        // prefer to draw to the right of the overlay box, but clamp inside canvas
+        const boxWidth = Math.min(canvas.width, localRight - localLeft);
+        let startX = Math.min(canvas.width - 180, Math.max(8, localRight + 8));
+        if(startX + 160 > canvas.width) startX = Math.max(8, localLeft - 168); // try left side of box
+        const startY = Math.max(32, localTop + 48);
+        const odds = computeRarityOdds();
+        ctx.save();
+        ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(startX-8, startY-20, 160, (odds.length*18)+28);
+        ctx.fillStyle = '#fff'; ctx.font = '13px system-ui, Arial'; ctx.textAlign = 'left';
+        ctx.fillText('Rarity Odds', startX, startY);
+        let oy = startY + 18;
+        for(const o of odds){ ctx.fillStyle = '#ddd'; ctx.fillText(`${o.name}: ${(o.prob*100).toFixed(2)}%`, startX, oy); oy += 18; }
+        ctx.restore();
+      }
+    }
+  }catch(e){ /* ignore */ }
 
   // Top-right: owned guns HUD
   const padding = 8;
@@ -628,8 +715,12 @@ function saveGame(){
       ownedGuns: state.ownedGuns,
       equippedGun: state.equippedGun,
       weaponConfig: WEAPON_CONFIG,
-      player: { x: state.player.x, y: state.player.y, checkpoint: state.player.checkpoint, hp: state.player.hp, maxHp: state.player.maxHp }
+      floor: state.floor,
+      player: { x: state.player.x, y: state.player.y, checkpoint: state.player.checkpoint, hp: state.player.hp, maxHp: state.player.maxHp },
+      playerStats: { damageMult: GAME_CONFIG.playerDamageMult, defencePct: GAME_CONFIG.playerDefencePct, speedMult: GAME_CONFIG.playerSpeedMult, luckPct: GAME_CONFIG.playerLuckPct, attackMult: GAME_CONFIG.playerAttackMult }
     };
+    // persist reroll bank
+    payload.rerollBank = state.rerollBank || 0;
     localStorage.setItem(SAVE_KEY, JSON.stringify(payload));
     debugLog('Game saved');
   } catch(e){ debugLog('Save failed: ' + e.message); }
@@ -647,7 +738,24 @@ function loadGame(){
       // merge saved weapon config (overwrite defaults)
       for(const k of Object.keys(p.weaponConfig)) if(WEAPON_CONFIG[k]) Object.assign(WEAPON_CONFIG[k], p.weaponConfig[k]);
     }
-    if(p.player && p.player.checkpoint) state.player.checkpoint = p.player.checkpoint;
+    if(p.player){
+      if(p.player.checkpoint) state.player.checkpoint = p.player.checkpoint;
+      if(typeof p.player.x !== 'undefined') state.player.x = Number(p.player.x);
+      if(typeof p.player.y !== 'undefined') state.player.y = Number(p.player.y);
+      if(typeof p.player.maxHp !== 'undefined') { state.player.maxHp = Number(p.player.maxHp); GAME_CONFIG.playerBaseMaxHp = Number(p.player.maxHp); }
+      if(typeof p.player.hp !== 'undefined') { state.player.hp = Number(p.player.hp); }
+    }
+    if(typeof p.floor !== 'undefined') state.floor = Number(p.floor);
+    // restore player stat overrides if present
+    if(p.playerStats){
+      if(typeof p.playerStats.damageMult !== 'undefined') GAME_CONFIG.playerDamageMult = Number(p.playerStats.damageMult);
+      if(typeof p.playerStats.defencePct !== 'undefined') GAME_CONFIG.playerDefencePct = Number(p.playerStats.defencePct);
+      if(typeof p.playerStats.speedMult !== 'undefined') GAME_CONFIG.playerSpeedMult = Number(p.playerStats.speedMult);
+  if(typeof p.playerStats.luckPct !== 'undefined') GAME_CONFIG.playerLuckPct = Number(p.playerStats.luckPct);
+      if(typeof p.playerStats.attackMult !== 'undefined') GAME_CONFIG.playerAttackMult = Number(p.playerStats.attackMult);
+    // restore reroll bank
+    if(typeof p.rerollBank !== 'undefined') state.rerollBank = Number(p.rerollBank);
+    }
     debugLog('Save loaded');
     return true;
   } catch(e){ debugLog('Load failed: ' + e.message); return false; }
@@ -712,8 +820,139 @@ window.addEventListener('load', () => {
   if(pAmt) { pAmt.value = GAME_CONFIG.particleCountOnHit || 12; pAmt.onchange = () => { GAME_CONFIG.particleCountOnHit = Math.max(0, Number(pAmt.value)); } }
   if(pLife) { pLife.value = GAME_CONFIG.particleLife || 0.5; pLife.onchange = () => { GAME_CONFIG.particleLife = Math.max(0.01, Number(pLife.value)); } }
   if(pSize) { pSize.value = GAME_CONFIG.particleSize || 2; pSize.onchange = () => { GAME_CONFIG.particleSize = Math.max(1, Number(pSize.value)); } }
+  // player stats inputs (percent sliders: 0..200 where 100 = +100% => 2x)
+  const psDmg = document.getElementById('ps_damage');
+  const psDmgVal = document.getElementById('ps_damage_val');
+  const psAttack = document.getElementById('ps_attack');
+  const psAttackVal = document.getElementById('ps_attack_val');
+  const psDef = document.getElementById('ps_defence');
+  const psDefVal = document.getElementById('ps_defence_val');
+  const psHealth = document.getElementById('ps_health');
+  const psHealthVal = document.getElementById('ps_health_val');
+  const psSpd = document.getElementById('ps_speed');
+  const psSpdVal = document.getElementById('ps_speed_val');
+  if(psDmg && psDmgVal){ const pct = Math.round(((GAME_CONFIG.playerDamageMult||1) - 1) * 100); psDmg.value = Math.max(0, pct); psDmgVal.textContent = psDmg.value + '%'; psDmg.oninput = psDmg.onchange = () => { const mult = 1 + (Number(psDmg.value)/100); GAME_CONFIG.playerDamageMult = mult; psDmgVal.textContent = psDmg.value + '%'; } }
+  if(psAttack && psAttackVal){ const pct = Math.round(((GAME_CONFIG.playerAttackMult||1) - 1) * 100 || 0); psAttack.value = Math.max(0, pct); psAttackVal.textContent = psAttack.value + '%'; psAttack.oninput = psAttack.onchange = () => { const mult = 1 + (Number(psAttack.value)/100); GAME_CONFIG.playerAttackMult = mult; psAttackVal.textContent = psAttack.value + '%'; } }
+  if(psDef && psDefVal){ psDef.value = GAME_CONFIG.playerDefencePct || 0; psDefVal.textContent = psDef.value + '%'; psDef.oninput = psDef.onchange = () => { GAME_CONFIG.playerDefencePct = Math.min(95, Number(psDef.value)); psDefVal.textContent = psDef.value + '%'; } }
+  if(psHealth && psHealthVal){ psHealth.value = state.player.maxHp || GAME_CONFIG.playerBaseMaxHp || 10; psHealthVal.textContent = psHealth.value; psHealth.oninput = psHealth.onchange = () => { const v = Math.max(1, Number(psHealth.value)); state.player.maxHp = v; GAME_CONFIG.playerBaseMaxHp = v; state.player.hp = Math.min(state.player.hp, state.player.maxHp); psHealthVal.textContent = psHealth.value; } }
+  if(psSpd && psSpdVal){ const pct = Math.round(((GAME_CONFIG.playerSpeedMult||1) - 1) * 100); psSpd.value = Math.max(0, pct); psSpdVal.textContent = psSpd.value + '%'; psSpd.oninput = psSpd.onchange = () => { const mult = 1 + (Number(psSpd.value)/100); GAME_CONFIG.playerSpeedMult = mult; psSpdVal.textContent = psSpd.value + '%'; } }
+  // Luck (percent)
+  const psLuck = document.getElementById('ps_luck');
+  const psLuckVal = document.getElementById('ps_luck_val');
+  if(psLuck && psLuckVal){ const pct = Math.round((GAME_CONFIG.playerLuckPct||0)); psLuck.value = Math.max(0, pct); psLuckVal.textContent = psLuck.value + '%'; psLuck.oninput = psLuck.onchange = () => { const v = Math.max(0, Math.min(100, Number(psLuck.value))); GAME_CONFIG.playerLuckPct = v; psLuckVal.textContent = psLuck.value + '%'; } }
   // ensure menu shown until user clicks Play
   showMainMenu(true);
+
+  // HUD toggles persistence: read saved toggles or default
+  try{
+    const HUD_KEY = 'shape_hud_toggles';
+    let saved = {};
+    try{ const raw = localStorage.getItem(HUD_KEY); if(raw) saved = JSON.parse(raw); }catch(e){}
+    window.HUD_TOGGLES = Object.assign({ weapon:true, tips:true, techs:true, seed:true, floor:true, platform:true, enemies:true, stats:true, rerolls:true }, saved || {});
+    // wire inputs
+    const map = { weapon:'hud_weapon', tips:'hud_tips', techs:'hud_techs', seed:'hud_seed', floor:'hud_floor', platform:'hud_platform', enemies:'hud_enemies', stats:'hud_stats', rerolls:'hud_rerolls' };
+    for(const key of Object.keys(map)){
+      const el = document.getElementById(map[key]); if(!el) continue; el.checked = !!window.HUD_TOGGLES[key]; el.onchange = () => { window.HUD_TOGGLES[key] = !!el.checked; try{ localStorage.setItem(HUD_KEY, JSON.stringify(window.HUD_TOGGLES)); }catch(e){} } }
+  }catch(e){ /* ignore HUD toggle init errors */ }
+  // Collapsible settings sections with persistence
+  try{
+    const settingsRoot = document.getElementById('settings');
+    const settingsBody = document.getElementById('settingsBody');
+    const COLLAPSE_KEY = 'shape_settings_collapsed';
+    const ORDER_KEY = 'shape_settings_order';
+    let collapsedState = {};
+    let savedOrder = [];
+    try{ const raw = localStorage.getItem(COLLAPSE_KEY); if(raw) collapsedState = JSON.parse(raw); }catch(e){}
+    try{ const raw = localStorage.getItem(ORDER_KEY); if(raw) savedOrder = JSON.parse(raw); }catch(e){}
+    if(settingsRoot && settingsBody){
+      // collect headings that are direct children of settingsBody
+      const headings = Array.from(settingsBody.querySelectorAll('h3, h4'));
+      const containers = [];
+
+      headings.forEach(h => {
+        // unique key for this section
+        const key = (h.textContent||'').trim();
+        // build a section: heading + nodes until next heading
+        const nodes = [];
+        let n = h.nextElementSibling;
+        while(n && !(/^H[34]$/i.test(n.tagName))){ nodes.push(n); n = n.nextElementSibling; }
+        // wrap nodes in a container for animation
+        const wrapper = document.createElement('div'); wrapper.className = 'collapsible';
+        if(nodes.length){
+          nodes[0].parentNode.insertBefore(wrapper, nodes[0]);
+          nodes.forEach(nd => wrapper.appendChild(nd));
+        }
+
+        // create outer draggable section container
+        const section = document.createElement('div');
+  section.className = 'settings-section';
+        section.dataset.sectionId = key;
+        // move heading and wrapper into section
+        h.parentNode.insertBefore(section, h);
+        section.appendChild(h);
+        section.appendChild(wrapper);
+
+  // add drag handle (make only the handle draggable so sliders remain usable)
+  const handle = document.createElement('span'); handle.textContent = '☰';
+  handle.style.cursor = 'grab'; handle.style.marginRight = '8px'; handle.title = 'Drag to reorder';
+  handle.setAttribute('draggable', 'true');
+  h.insertBefore(handle, h.firstChild);
+
+        // chevron for collapse
+        const chev = document.createElement('span'); chev.textContent = (collapsedState[key] ? '▸ ' : '▾ ');
+        chev.style.marginRight = '6px'; chev.style.color = '#ccc'; h.insertBefore(chev, handle.nextSibling);
+        h.style.cursor = 'pointer';
+
+        // set initial max-height based on stored state
+        const isCollapsed = !!collapsedState[key];
+        if(isCollapsed) { wrapper.style.maxHeight = '0px'; }
+        else { wrapper.style.maxHeight = wrapper.scrollHeight + 'px'; }
+
+        // toggle function with animation
+        function setVisible(show){ if(show){ wrapper.style.maxHeight = wrapper.scrollHeight + 'px'; chev.textContent = '▾ '; delete collapsedState[key]; } else { wrapper.style.maxHeight = '0px'; chev.textContent = '▸ '; collapsedState[key]=true; } localStorage.setItem(COLLAPSE_KEY, JSON.stringify(collapsedState)); }
+        h.addEventListener('click', (ev) => { // prevent dragging when clicking the handle
+          if(ev.target === handle) return; const cur = wrapper.style.maxHeight !== '0px'; setVisible(!cur); });
+
+  // drag events (bound to handle so inner controls like sliders don't initiate drags)
+  handle.addEventListener('dragstart', (ev) => { ev.dataTransfer.setData('text/plain', key); section.classList.add('dragging'); });
+  handle.addEventListener('dragend', () => { section.classList.remove('dragging'); });
+        section.addEventListener('dragover', (ev) => { ev.preventDefault(); ev.dataTransfer.dropEffect = 'move'; section.style.outline = '2px dashed rgba(255,255,255,0.06)'; });
+        section.addEventListener('dragleave', () => { section.style.outline = ''; });
+        section.addEventListener('drop', (ev) => {
+          ev.preventDefault(); section.style.outline = '';
+          const draggedId = ev.dataTransfer.getData('text/plain');
+          if(!draggedId) return;
+          if(draggedId === section.dataset.sectionId) return;
+          const draggedEl = settingsBody.querySelector(`[data-section-id="${CSS.escape(draggedId)}"]`);
+          if(!draggedEl) return;
+          settingsBody.insertBefore(draggedEl, section);
+          // persist new order
+          const order = Array.from(settingsBody.querySelectorAll('.settings-section')).map(s => s.dataset.sectionId);
+          try{ localStorage.setItem(ORDER_KEY, JSON.stringify(order)); }catch(e){}
+        });
+
+        containers.push(section);
+      });
+
+      // reorder containers based on savedOrder
+      if(savedOrder && savedOrder.length){
+        const map = {};
+        containers.forEach(c => map[c.dataset.sectionId] = c);
+        const ordered = [];
+        savedOrder.forEach(k => { if(map[k]){ ordered.push(map[k]); delete map[k]; } });
+        // append remaining
+        Object.keys(map).forEach(k => ordered.push(map[k]));
+        // append to DOM in order
+        ordered.forEach(c => settingsBody.appendChild(c));
+      }
+
+      // wire expand/collapse all buttons
+      const expandBtn = document.getElementById('expandAll');
+      const collapseBtn = document.getElementById('collapseAll');
+      if(expandBtn) expandBtn.addEventListener('click', () => { containers.forEach(s => { const w = s.querySelector('.collapsible'); w.style.maxHeight = w.scrollHeight + 'px'; const headingKey = s.dataset.sectionId; delete collapsedState[headingKey]; }); localStorage.setItem(COLLAPSE_KEY, JSON.stringify({})); });
+      if(collapseBtn) collapseBtn.addEventListener('click', () => { containers.forEach(s => { const w = s.querySelector('.collapsible'); w.style.maxHeight = '0px'; const headingKey = s.dataset.sectionId; collapsedState[headingKey]=true; }); const all = {}; containers.forEach(s => { all[s.dataset.sectionId] = true; }); localStorage.setItem(COLLAPSE_KEY, JSON.stringify(all)); });
+    }
+  }catch(e){ console.warn('settings collapse/init/reorder failed', e); }
 });
 
 // toggle pause with Escape
@@ -739,7 +978,7 @@ function updatePhysics(dt){
     const centerX = state.player.checkpoint.x || 100;
     const roam = 160;
     const targetX = centerX + Math.sin(performance.now()/1500) * roam;
-    state.player.vx = (targetX > state.player.x) ? PLAYER_SPEED * 0.6 : -PLAYER_SPEED * 0.6;
+  state.player.vx = (targetX > state.player.x) ? PLAYER_SPEED * 0.6 * (GAME_CONFIG.playerSpeedMult || 1) : -PLAYER_SPEED * 0.6 * (GAME_CONFIG.playerSpeedMult || 1);
     // occasionally jump
     if(Math.random() < 0.002) { state.player.vy = -JUMP_SPEED * 0.8; }
     // demo shooting at nearest enemy
@@ -756,8 +995,8 @@ function updatePhysics(dt){
       demoShootTimer = 0.4 + Math.random()*1.4;
     }
   } else {
-    if(keys["ArrowLeft"]||keys["KeyA"]) state.player.vx = -PLAYER_SPEED;
-    if(keys["ArrowRight"]||keys["KeyD"]) state.player.vx = PLAYER_SPEED;
+  if(keys["ArrowLeft"]||keys["KeyA"]) state.player.vx = -PLAYER_SPEED * (GAME_CONFIG.playerSpeedMult || 1);
+  if(keys["ArrowRight"]||keys["KeyD"]) state.player.vx = PLAYER_SPEED * (GAME_CONFIG.playerSpeedMult || 1);
   }
 
   // jump
@@ -838,10 +1077,15 @@ function updatePhysics(dt){
     if(e.hp <= 0){
       if(toggleLoot && toggleLoot.checked) {
         // tech drop
-        if (rng() < DROP_RATE_TECH) lootDrops.push(new Loot(e.x, e.y, "tech"));
+  // compute effective drop chances using same nonlinear luck scaling as the UI
+  const luck = Math.max(0, Math.min(100, GAME_CONFIG.playerLuckPct || 0));
+  const luckFactor = Math.sqrt(luck) / 100.0; // 0..0.1 for 100 luck -> 0.1
+  const effTech = Math.min(1, DROP_RATE_TECH + luckFactor * 1.5);
+  if (rng() < effTech) lootDrops.push(new Loot(e.x, e.y, "tech"));
         // gun drop: prefer unowned guns
         // gun drop: choose weapon by weight, prefer unowned weapons
-      if (rng() < DROP_RATE_GUN) {
+  const effGun = Math.min(1, DROP_RATE_GUN + luckFactor * 1.5);
+  if (rng() < effGun) {
         const gunKeys = Object.keys(WEAPON_CONFIG);
         // prefer unowned guns if any
         const unowned = gunKeys.filter(k => !state.ownedGuns[k]);
@@ -920,7 +1164,9 @@ function updatePhysics(dt){
   for(let i=doors.length-1;i>=0;i--){
     const d = doors[i];
     if(state.player.x < d.x + d.w && state.player.x + state.player.w > d.x && state.player.y < d.y + d.h && state.player.y + state.player.h > d.y){
-      state.floor = (state.floor||0) + 1; reseed(Math.floor(Math.random()*1e9)); resetWorld(); break;
+      // open level-up menu instead of instant reset/heal
+      openLevelUpMenu();
+      break;
     }
   }
 
@@ -992,6 +1238,212 @@ function render(){
 
   if (!gamePaused) handleAutoFire();
 }
+
+// ---------- Level-up / Upgrade Menu ----------
+const RARITY_TABLE = [
+  { name: 'Common', weight: 50, mult: 0.02 },
+  { name: 'Uncommon', weight: 30, mult: 0.05 },
+  { name: 'Rare', weight: 12, mult: 0.1 },
+  { name: 'Legendary', weight: 5, mult: 0.15 },
+  { name: 'Mythic', weight: 2, mult: 0.2 },
+  { name: 'Divine', weight: 1, mult: 0.35 }
+];
+
+function weightedPick(rngFunc){
+  // create a working weight array that can be biased by player luck
+  const luck = Math.max(0, Math.min(100, GAME_CONFIG.playerLuckPct || 0));
+  // nonlinear bias mapping: use sqrt to get diminishing returns
+  const bias = Math.sqrt(luck) / 14.1421; // sqrt(100)=10 -> 10/14.1421 ~= 0.707
+  let total = 0;
+  const mod = RARITY_TABLE.map((r, idx) => {
+    // scale index so highest rarities get more boost; idx 0 => common
+    const extra = idx * bias * r.weight;
+    const w = Math.max(0.1, r.weight + extra);
+    total += w;
+    return w;
+  });
+  let v = Math.floor(rngFunc() * total);
+  for(let i=0;i<RARITY_TABLE.length;i++){
+    if(v < mod[i]) return RARITY_TABLE[i];
+    v -= mod[i];
+  }
+  return RARITY_TABLE[0];
+}
+
+// Compute effective drop chances taking into account luck (non-linear) and update UI
+function computeEffectiveDropRates(){
+  const baseTech = Number(document.getElementById('dropRateTech')?.value || DROP_RATE_TECH);
+  const baseGun = Number(document.getElementById('dropRateGun')?.value || DROP_RATE_GUN);
+  const luck = Math.max(0, Math.min(100, GAME_CONFIG.playerLuckPct || 0));
+  // nonlinear luck effect: sqrt scaling for diminishing returns
+  const luckFactor = Math.sqrt(luck) / 100.0; // 0..0.1 for 100 luck -> 0.1
+  const effTech = Math.min(1, baseTech + luckFactor * 1.5); // scale so max ~ +0.15
+  const effGun = Math.min(1, baseGun + luckFactor * 1.5);
+  const tEl = document.getElementById('effDropTech'); const bTechEl = document.getElementById('baseDropTech');
+  const gEl = document.getElementById('effDropGun'); const bGunEl = document.getElementById('baseDropGun');
+  if(tEl) tEl.textContent = effTech.toFixed(3);
+  if(gEl) gEl.textContent = effGun.toFixed(3);
+  if(bTechEl) bTechEl.textContent = baseTech.toFixed(2);
+  if(bGunEl) bGunEl.textContent = baseGun.toFixed(2);
+  return { effTech, effGun };
+}
+
+// Compute rarity odds based on the same mod weights used by weightedPick; returns array of {name,prob}
+function computeRarityOdds(){
+  const luck = Math.max(0, Math.min(100, GAME_CONFIG.playerLuckPct || 0));
+  const bias = Math.sqrt(luck) / 14.1421;
+  const mod = RARITY_TABLE.map((r, idx) => Math.max(0.1, r.weight + idx * bias * r.weight));
+  const total = mod.reduce((s,x)=>s+x,0);
+  return RARITY_TABLE.map((r,idx)=>({ name: r.name, prob: mod[idx] / total }));
+}
+
+// UI wiring: update drop rates and rarity odds when relevant controls change
+window.addEventListener('load', () => {
+  const drTech = document.getElementById('dropRateTech');
+  const drGun = document.getElementById('dropRateGun');
+  const showOdds = document.getElementById('showRarityOdds');
+  const oddsPanel = document.getElementById('rarityOddsPanel');
+  function refresh(){ computeEffectiveDropRates(); if(showOdds && showOdds.checked && oddsPanel){ const odds = computeRarityOdds(); oddsPanel.innerHTML = odds.map(o=>`${o.name}: ${(o.prob*100).toFixed(2)}%`).join('<br>'); oddsPanel.style.display='block'; } else if(oddsPanel) oddsPanel.style.display='none'; }
+  if(drTech) drTech.onchange = refresh; if(drGun) drGun.onchange = refresh; if(showOdds) showOdds.onchange = refresh;
+  // update when luck changes via slider wiring elsewhere
+  const psLuck = document.getElementById('ps_luck'); if(psLuck) psLuck.onchange = psLuck.oninput = () => { computeEffectiveDropRates(); if(showOdds && showOdds.checked) { const odds = computeRarityOdds(); if(oddsPanel) oddsPanel.innerHTML = odds.map(o=>`${o.name}: ${(o.prob*100).toFixed(2)}%`).join('<br>'); } };
+  // initial refresh
+  setTimeout(refresh, 200);
+});
+
+function makeUpgradeOptions(){
+  const stats = ['Speed','Attack','Damage','Health','Defence','Luck'];
+  // pick 3 random (without replacement)
+  const choices = [];
+  const pool = stats.slice();
+  for(let i=0;i<3;i++){
+    const idx = Math.floor(rng()*pool.length);
+    const stat = pool.splice(idx,1)[0];
+    const rarity = weightedPick(rng);
+    choices.push({ stat, rarity });
+  }
+  return choices;
+}
+
+let levelMenuOpen = false;
+let levelMenuRerolls = 1;
+let currentLevelChoices = [];
+
+function createLevelMenuIfNeeded(){
+  if(document.getElementById('levelMenuOverlay')) return;
+  const gameArea = document.getElementById('gameArea');
+  if(!gameArea) return;
+  const overlay = document.createElement('div'); overlay.id = 'levelMenuOverlay';
+  overlay.style.position = 'absolute'; overlay.style.left = '0'; overlay.style.top = '0'; overlay.style.width = '100%'; overlay.style.height = '100%'; overlay.style.display='none'; overlay.style.alignItems='center'; overlay.style.justifyContent='center'; overlay.style.background='rgba(0,0,0,0.7)'; overlay.style.zIndex='2000';
+  // inner container holds the menu box and the odds panel side-by-side
+  const inner = document.createElement('div'); inner.style.display = 'flex'; inner.style.alignItems = 'flex-start'; inner.style.gap = '12px';
+  const box = document.createElement('div'); box.style.background='#111'; box.style.border='2px solid #444'; box.style.padding='14px'; box.style.width='520px'; box.style.color='#fff'; box.style.textAlign='center';
+  const title = document.createElement('div'); title.textContent='Level Up! Choose one reward'; title.style.fontSize='18px'; title.style.marginBottom='8px'; box.appendChild(title);
+  const opts = document.createElement('div'); opts.id='levelMenuOptions'; opts.style.display='flex'; opts.style.gap='8px'; opts.style.justifyContent='center'; box.appendChild(opts);
+  const footer = document.createElement('div'); footer.style.marginTop='10px';
+  const rerollBtn = document.createElement('button'); rerollBtn.textContent='Reroll (1)'; rerollBtn.id='levelMenuReroll'; rerollBtn.style.marginRight='8px'; footer.appendChild(rerollBtn);
+  const skipBtn = document.createElement('button'); skipBtn.textContent='Skip & Full Heal'; skipBtn.id='levelMenuSkip'; skipBtn.style.marginRight='8px'; footer.appendChild(skipBtn);
+  const closeBtn = document.createElement('button'); closeBtn.textContent='Skip & +1 Reroll'; closeBtn.id='levelMenuClose'; footer.appendChild(closeBtn);
+  box.appendChild(footer);
+  // odds panel (to the right of the box) — not darkened, simple text
+  const oddsPanel = document.createElement('div'); oddsPanel.id = 'levelMenuOdds';
+  oddsPanel.style.minWidth = '160px'; oddsPanel.style.color = '#fff'; oddsPanel.style.padding = '8px 6px'; oddsPanel.style.background = 'transparent'; oddsPanel.style.border = '1px solid rgba(255,255,255,0.06)'; oddsPanel.style.borderRadius = '6px';
+  oddsPanel.style.display = 'none';
+  inner.appendChild(box);
+  inner.appendChild(oddsPanel);
+  overlay.appendChild(inner);
+  gameArea.appendChild(overlay);
+
+  rerollBtn.onclick = () => {
+    if(levelMenuRerolls > 0){ levelMenuRerolls--; }
+    else if(state.rerollBank > 0){ state.rerollBank--; }
+    else { return; }
+    currentLevelChoices = makeUpgradeOptions(); renderLevelMenuOptions(); document.getElementById('levelMenuReroll').textContent = 'Reroll ('+levelMenuRerolls + (state.rerollBank ? ' +' + state.rerollBank : '') +')';
+  };
+  // Skip: full heal + advance
+  skipBtn.onclick = () => { closeLevelMenu(true); advanceFloor(true); };
+  // Close: Skip without heal, but give +1 reroll and advance (no heal)
+  closeBtn.onclick = () => { state.rerollBank = (state.rerollBank||0) + 1; closeLevelMenu(false); advanceFloor(false); document.getElementById('levelMenuReroll').textContent = 'Reroll ('+levelMenuRerolls + (state.rerollBank ? ' +' + state.rerollBank : '') +')'; };
+}
+
+function renderLevelMenuOptions(){
+  const container = document.getElementById('levelMenuOptions'); if(!container) return;
+  container.innerHTML = '';
+  currentLevelChoices.forEach((c, idx) => {
+    const col = document.createElement('div'); col.style.padding='8px'; col.style.width='150px'; col.style.borderRadius='6px';
+    // rarity color mapping
+    const rarityColors = {
+      'Common': { bg:'#1e1e1e', border:'#444', text:'#ddd' },
+      'Uncommon': { bg:'#113322', border:'#2a8f57', text:'#9ff' },
+      'Rare': { bg:'#1a1a33', border:'#5b6bd6', text:'#aef' },
+      'Legendary': { bg:'#332214', border:'#d48f2a', text:'#ffd' },
+      'Mythic': { bg:'#2b1830', border:'#b14fd1', text:'#f8c' },
+      'Divine': { bg:'#2b2a1b', border:'#ffd34d', text:'#fff7c8' }
+    };
+  const rc = rarityColors[c.rarity.name] || { bg:'#222', border:'#333', text:'#ffd' };
+  col.style.background = rc.bg; col.style.border = '1px solid ' + rc.border; col.style.color = rc.text;
+  // if Divine, add chroma class
+  if(c.rarity.name === 'Divine') col.classList.add('divine-chroma');
+    const r = document.createElement('div'); r.textContent = c.rarity.name; r.style.color = rc.text; r.style.fontWeight='700'; col.appendChild(r);
+    const s = document.createElement('div'); s.textContent = c.stat; s.style.margin='8px 0'; col.appendChild(s);
+    const amt = document.createElement('div'); amt.textContent = '+' + Math.round(c.rarity.mult * 100) + '%'; amt.style.color='#afa'; col.appendChild(amt);
+    const take = document.createElement('button'); take.textContent='Take'; take.style.marginTop='8px'; take.onclick = () => { applyUpgrade(c); closeLevelMenu(false); advanceFloor(); }; col.appendChild(take);
+    container.appendChild(col);
+  });
+  // update odds panel in DOM (right side of overlay) if present and if user wants it
+  const oddsPanel = document.getElementById('levelMenuOdds');
+  const showOddsCheckbox = document.getElementById('showRarityOdds');
+  if(oddsPanel && showOddsCheckbox && showOddsCheckbox.checked){
+    const odds = computeRarityOdds();
+    oddsPanel.style.display = 'block';
+    oddsPanel.innerHTML = '<strong>Rarity Odds</strong><br/>' + odds.map(o=>`<div style="margin-top:6px;">${o.name}: <strong>${(o.prob*100).toFixed(2)}%</strong></div>`).join('');
+  } else if(oddsPanel) {
+    oddsPanel.style.display = 'none';
+  }
+}
+
+// Wire Give Rerolls input/button
+window.addEventListener('load', () => {
+  const giveInput = document.getElementById('giveRerollsInput');
+  const giveBtn = document.getElementById('giveRerollsBtn');
+  if(giveBtn && giveInput){
+    giveBtn.onclick = () => {
+      const n = Math.max(0, Math.floor(Number(giveInput.value) || 0));
+      if(n <= 0) return;
+      state.rerollBank = (state.rerollBank || 0) + n;
+      saveGame();
+      updateHUD();
+      // if level menu open, refresh reroll button text
+      const rerollBtn = document.getElementById('levelMenuReroll');
+  if(rerollBtn) rerollBtn.textContent = 'Reroll ('+ (typeof levelMenuRerolls !== 'undefined' ? levelMenuRerolls : 1) + (state.rerollBank ? ' +' + state.rerollBank : '') +')';
+    };
+  }
+});
+
+function openLevelUpMenu(){
+  if(levelMenuOpen) return; levelMenuOpen = true; gamePaused = true; demoMode = false; createLevelMenuIfNeeded(); levelMenuRerolls = 1; currentLevelChoices = makeUpgradeOptions(); renderLevelMenuOptions(); const overlay = document.getElementById('levelMenuOverlay'); if(overlay) overlay.style.display='flex';
+}
+
+function closeLevelMenu(fullHeal=false){ levelMenuOpen=false; gamePaused=false; const overlay = document.getElementById('levelMenuOverlay'); if(overlay) overlay.style.display='none'; if(fullHeal){ state.player.hp = state.player.maxHp; } }
+
+function applyUpgrade(choice){
+  const stat = choice.stat;
+  const pct = choice.rarity.mult; // e.g. 0.1 => +10%
+  switch(stat){
+    case 'Speed': GAME_CONFIG.playerSpeedMult = (GAME_CONFIG.playerSpeedMult || 1) + pct; break;
+    case 'Attack': GAME_CONFIG.playerAttackMult = (GAME_CONFIG.playerAttackMult || 1) + pct; break;
+    case 'Damage': GAME_CONFIG.playerDamageMult = (GAME_CONFIG.playerDamageMult || 1) + pct; break;
+    case 'Health': state.player.maxHp = (state.player.maxHp || GAME_CONFIG.playerBaseMaxHp) + Math.round(pct * 100); GAME_CONFIG.playerBaseMaxHp = state.player.maxHp; break;
+    case 'Defence': GAME_CONFIG.playerDefencePct = Math.min(95, (GAME_CONFIG.playerDefencePct||0) + Math.round(pct * 100)); break;
+    case 'Luck': GAME_CONFIG.playerLuckPct = Math.min(100, (GAME_CONFIG.playerLuckPct||0) + Math.round(pct * 100)); break;
+  }
+  // full heal on taking an upgrade
+  state.player.hp = state.player.maxHp;
+  saveGame();
+}
+
+function advanceFloor(fullHeal = true){ state.floor = (state.floor||0) + 1; reseed(Math.floor(Math.random()*1e9)); resetWorld(fullHeal); }
+
 
 // ---------- Main loop ----------
 function run(nowMs) {
