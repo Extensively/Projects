@@ -203,3 +203,10 @@ html, body {
     max-height: 200px;
     overflow-y: auto;
 }
+#radarPanel,
+#weaponRadarPanel {
+  display: inline-block;   /* shrink to fit content */
+  margin: 0 auto;          /* center horizontally */
+  text-align: center;      /* keep labels aligned */
+  max-width: 280px;        /* just a bit wider than the 260px canvas */
+}

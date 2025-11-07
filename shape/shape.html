@@ -17,9 +17,7 @@
   <a href="https://extensively.github.io/Projects/snake.html">Snake</a>
   <a href="shape/shape.html" class="rainbowfast">Shapez</a>
 </div>
-<br><br>
-<h1>shape game beta test thingy (join up bro)</h1>
-<a href="https://forms.gle/p36Qi4Lzpem137ut5" target="_blank">clic to add stuff to game</a>
+<br>
 <br>
   <div id="app">
     <div id="gameArea" style="position:relative;">
@@ -47,14 +45,24 @@
       </div>
 
     </div>
+<div id="radarContainer" style="display:flex; flex-direction:column; align-items:center;">
+  <div id="radarPanel">
+  <div id="radarPanel">
+    <div style="padding:10px; color:#ffd; font-weight:600;">Player Stats</div>
+    <canvas id="radarCanvas" width="260" height="260" style="display:block; margin:10px auto; background:transparent;"></canvas>
+    <div id="radarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
+      SPD · ATK · DMG · HP · DEF · LCK
+  </div>
+  </div>
+  <div id="weaponRadarPanel" style="margin-top:12px;">
+    <div style="padding:10px; color:#ffd; font-weight:600;">Weapon Stats</div>
+    <canvas id="weaponRadarCanvas" width="260" height="260" style="display:block; margin:10px auto; background:transparent;"></canvas>
+    <div id="weaponRadarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
+      DMG · SPD · ATK · PIERCE · SPREAD · ANGLE · PDL
+    </div>
+</div>
 
-    <!-- Radar panel inserted between gameArea and settings -->
-    <div id="radarPanel">
-      <div style="padding:10px; color:#ffd; font-weight:600;">Player Stats</div>
-      <canvas id="radarCanvas" width="260" height="260" style="display:block; margin:10px auto; background:transparent;"></canvas>
-      <div id="radarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
-  SPD · ATK · DMG · HP · DEF · LCK
-      </div>
+  </div>
     </div>
 
     <aside id="settings">
@@ -82,6 +90,8 @@
         <div>Jump: W or Space</div>
         <div>Shoot: Mouse click</div>
         <div>Cycle weapons: Q</div>
+
+
         <h3>World</h3>
         <label>Door spawn chance (per platform):
           <input id="doorSpawnRate" type="number" min="0" max="1" step="0.01" value="0.02" />
@@ -96,6 +106,7 @@
           <input id="infiniteWalls" type="checkbox" checked />
           Enable far walls
         </label>
+
 
         <h3>Combat</h3>
         <h3>Weapon Stats (selected)</h3>
@@ -143,6 +154,8 @@
         <h3>Debug Toggles</h3>
           <label><input type="checkbox" id="toggleSpawn" checked /> Spawn Enemies</label>
           <label><input type="checkbox" id="toggleLoot" checked /> Loot Drops</label>
+          <label><input type="checkbox" id="toggleDebug" checked /> Show Debug Log</label>
+
         <h3>Game</h3>
         <div>Lives: <span id="livesDisplay">-</span></div>
         <h3>Platform Generation</h3>
@@ -201,7 +214,6 @@
         <label>Luck (percent): <span id="ps_luck_val">0%</span>
           <input id="ps_luck" type="range" min="0" max="100" step="1" value="0" />
         </label>
-        
         <h3 style="margin-top:12px;">HUD Displays</h3>
         <div id="hudToggles">
           <label><input type="checkbox" id="hud_weapon" checked /> Show Weapon</label>

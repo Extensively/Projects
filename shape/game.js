@@ -3,6 +3,15 @@ function debugLog(message) {
     if (debugDiv) {
         debugDiv.innerHTML += message + '<br>';
     }
+let DEBUG_ENABLED = true; // default on
+
+function debugLog(message) {
+  if (!DEBUG_ENABLED) return; // respect toggle
+  const debugDiv = document.getElementById('debugOutput');
+  if (debugDiv) {
+    debugDiv.innerHTML += message + '<br>';
+  }
+}
 }
 // Simple radar chart renderer used by the shape game.
 window.RadarChart = (function(){
@@ -176,6 +185,7 @@ let WALL_DISTANCE = wallDistanceInput ? Math.max(200, Number(wallDistanceInput.v
 let ENABLE_WALLS = infiniteWallsCheckbox ? infiniteWallsCheckbox.checked : SETTINGS_DEFAULTS.ENABLE_WALLS;
 let PLAYER_ATTACK_RATE = attackRateInput ? Math.max(0.1, Number(attackRateInput.value)) : SETTINGS_DEFAULTS.PLAYER_ATTACK_RATE;
 
+
 debugLog('Game script loaded');
 
 // bind inputs if present
@@ -183,6 +193,7 @@ if (expansionAmountInput) expansionAmountInput.addEventListener("change", () => 
 if (wallDistanceInput) wallDistanceInput.addEventListener("change", () => { WALL_DISTANCE = Math.max(200, Number(wallDistanceInput.value)); updateWalls(); });
 if (infiniteWallsCheckbox) infiniteWallsCheckbox.addEventListener("change", () => { ENABLE_WALLS = infiniteWallsCheckbox.checked; updateWalls(); });
 if (attackRateInput) attackRateInput.addEventListener("change", () => { PLAYER_ATTACK_RATE = Math.max(0.1, Number(attackRateInput.value)); });
+
 
 // small UI guards
 if (toggleBtn && settingsBody) {
@@ -192,6 +203,33 @@ if (toggleBtn && settingsBody) {
   });
 }
 if (regenSeedBtn) regenSeedBtn.addEventListener("click", () => { reseed(Math.floor(Math.random() * 1e9)); resetWorld(); });
+
+const toggleDebug = document.getElementById("toggleDebug");
+if (toggleDebug) {
+  DEBUG_ENABLED = toggleDebug.checked;
+  toggleDebug.addEventListener("change", () => {
+    DEBUG_ENABLED = toggleDebug.checked;
+    if (!DEBUG_ENABLED) {
+      const debugDiv = document.getElementById('debugOutput');
+      if (debugDiv) debugDiv.innerHTML = ""; // clear log when disabled
+    }
+  });
+}
+const enableCheats = document.getElementById("enableCheats");
+const cheatsNotice = document.getElementById("cheatsNotice");
+
+function updateCheatVisibility() {
+  const cheatSections = document.querySelectorAll(".cheat-only");
+  const cheatsOn = enableCheats && enableCheats.checked;
+  cheatSections.forEach(sec => sec.style.display = cheatsOn ? "block" : "none");
+  if (cheatsNotice) cheatsNotice.style.display = cheatsOn ? "block" : "none";
+}
+
+if (enableCheats) {
+  enableCheats.addEventListener("change", updateCheatVisibility);
+  updateCheatVisibility(); // initialize
+}
+
 
 // ---------- RNG ----------
 let seed = Math.floor(Math.random() * 1e9);
@@ -534,7 +572,15 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ---------- HUD ----------
-function updateHUD(){ if(livesDisplay) livesDisplay.textContent = state.player.lives; }
+function updateHUD(){ if(livesDisplay) livesDisplay.textContent = state.player.lives; 
+
+  const psLuck = document.getElementById('ps_luck');
+  const psLuckVal = document.getElementById('ps_luck_val');
+  if (psLuck && psLuckVal) {
+    psLuck.value = GAME_CONFIG.playerLuckPct;
+    psLuckVal.textContent = GAME_CONFIG.playerLuckPct + '%';
+  }
+}
 function drawHUD(){
   // left HUD (existing)
   ctx.fillStyle="rgba(0,0,0,0.45)"; ctx.fillRect(8,8,360,132);
@@ -553,7 +599,7 @@ function drawHUD(){
   if(window.HUD_TOGGLES.floor) lines.push({ text: 'Floor: ' + (state.floor||1) });
   if(window.HUD_TOGGLES.platform) lines.push({ text: `Plat: size=${GEN_CHUNK_SIZE} spacing=${GEN_SPACING_X} width=${GEN_PLAT_W}` });
   if(window.HUD_TOGGLES.enemies) lines.push({ text: 'Enemies: ' + enemies.length });
-  if(window.HUD_TOGGLES.stats) lines.push({ text: `Dmg: ${(GAME_CONFIG.playerDamageMult||1).toFixed(2)}  Def: ${Math.round(GAME_CONFIG.playerDefencePct||0)}%  Spd: ${(GAME_CONFIG.playerSpeedMult||1).toFixed(2)}` });
+  if(window.HUD_TOGGLES.stats) lines.push({ text: `Dmg: ${(GAME_CONFIG.playerDamageMult||1).toFixed(2)}  Def: ${Math.round(GAME_CONFIG.playerDefencePct||0)}%  Spd: ${(GAME_CONFIG.playerSpeedMult||1).toFixed(2)}  Atk: ${(GAME_CONFIG.playerAttackMult||1).toFixed(2)}` });  
   if(window.HUD_TOGGLES.rerolls) lines.push({ text: 'Rerolls: ' + (state.rerollBank || 0) });
 
   // draw stacked lines
@@ -591,16 +637,17 @@ function drawHUD(){
     const radarCanvas = document.getElementById('radarCanvas');
     if(radarCanvas && window.RadarChart){
       // normalize stats to 0..1 for display
-  const maxValues = { speedPct:200, attack:12.0, damagePct:200, health:300.0, defencePct:95.0, luckPct:100 };
+  
+      const maxValues = { speedPct:200, attack:12.0, damagePct:200, health:300.0, defencePct:95.0, luckPct:100 };
   const labels = ['SPD','ATK','DMG','HP','DEF','LCK'];
   const vals = [];
   // convert percent sliders to 0..1 (0% -> 0, 100% -> 1) where current stored values are multipliers
   const speedPct = Math.round(((GAME_CONFIG.playerSpeedMult||1) - 1) * 100);
   vals.push( Math.min(1, speedPct / maxValues.speedPct) );
       // attack speed: compute effective shots/sec for current weapon
-      const weapon = WEAPON_CONFIG[state.equippedGun] || {}; const weaponRate = Number(weapon.attackRate || PLAYER_ATTACK_RATE);
-      const effectiveRate = Math.min( (PLAYER_ATTACK_RATE||1) * weaponRate, maxValues.attack );
-      vals.push( Math.min(1, effectiveRate / maxValues.attack) );
+      // New:
+      const attackMult = GAME_CONFIG.playerAttackMult || 1;
+      vals.push(Math.min(1, attackMult / 2)); // 2x = full scale
   const dmgPct = Math.round(((GAME_CONFIG.playerDamageMult||1) - 1) * 100);
   vals.push( Math.min(1, dmgPct / maxValues.damagePct) );
   vals.push( Math.min(1, (state.player.maxHp || GAME_CONFIG.playerBaseMaxHp) / maxValues.health) );
@@ -639,6 +686,42 @@ function drawHUD(){
       }
     }
   }catch(e){ /* ignore */ }
+
+try {
+  const weaponRadarCanvas = document.getElementById('weaponRadarCanvas');
+  if (weaponRadarCanvas && window.RadarChart) {
+    const eq = state.equippedGun && WEAPON_CONFIG[state.equippedGun];
+    if (eq) {
+      // max values chosen for normalization
+      const maxValues = {
+        damage: 20,       // slider max
+        speed: 40,        // slider max
+        attackRate: 12,   // fastest gun (machine_gun = 10, give some headroom)
+        pierce: 8,        // slider max
+        spreadCount: 9,   // slider max
+        spreadAngle: 90,  // slider max
+        pdl: 100          // percent
+      };
+      const labels = ['DMG','SPD','ATK','PIERCE','SPREAD','ANGLE','PDL'];
+      const vals = [];
+      vals.push(Math.min(1, (eq.damage||1) / maxValues.damage));
+      vals.push(Math.min(1, (eq.speed||8) / maxValues.speed));
+      vals.push(Math.min(1, (eq.attackRate||1) / maxValues.attackRate));
+      vals.push(Math.min(1, (eq.pierce||0) / maxValues.pierce));
+      vals.push(Math.min(1, (eq.spreadCount||1) / maxValues.spreadCount));
+      vals.push(Math.min(1, (eq.spreadAngle||0) / maxValues.spreadAngle));
+      vals.push(Math.min(1, ((eq.pierceDamageLoss||0) * 100) / maxValues.pdl));
+
+      window.RadarChart.drawRadar(weaponRadarCanvas, labels, vals, {
+        fillColor:'rgba(255,150,80,0.07)',
+        lineColor:'rgba(255,150,80,0.9)',
+        pointColor:'#fa6',
+        labelColor:'#ddd'
+      });
+    }
+  }
+} catch(e) { /* ignore radar errors */ }
+
 
   // Top-right: owned guns HUD
   const padding = 8;
@@ -682,6 +765,8 @@ function updateWeaponStatsPanel(weaponId){
   const spreadVal = document.getElementById('ws_spread_val');
   const spreadAngleEl = document.getElementById('ws_spread_angle');
   const spreadAngleVal = document.getElementById('ws_spread_angle_val');
+  const luckVal = document.getElementById('ws_luck_val')
+
   if(!w || !dmgEl) return;
   dmgEl.value = w.damage || 1; dmgVal.textContent = dmgEl.value;
   spdEl.value = w.speed || 8; spdVal.textContent = spdEl.value;
@@ -804,7 +889,7 @@ function loadGame(){
       if(typeof p.playerStats.damageMult !== 'undefined') GAME_CONFIG.playerDamageMult = Number(p.playerStats.damageMult);
       if(typeof p.playerStats.defencePct !== 'undefined') GAME_CONFIG.playerDefencePct = Number(p.playerStats.defencePct);
       if(typeof p.playerStats.speedMult !== 'undefined') GAME_CONFIG.playerSpeedMult = Number(p.playerStats.speedMult);
-  if(typeof p.playerStats.luckPct !== 'undefined') GAME_CONFIG.playerLuckPct = Number(p.playerStats.luckPct);
+      if(typeof p.playerStats.luckPct !== 'undefined') GAME_CONFIG.playerLuckPct = Number(p.playerStats.luckPct);
       if(typeof p.playerStats.attackMult !== 'undefined') GAME_CONFIG.playerAttackMult = Number(p.playerStats.attackMult);
     // restore reroll bank
     if(typeof p.rerollBank !== 'undefined') state.rerollBank = Number(p.rerollBank);
@@ -884,15 +969,83 @@ window.addEventListener('load', () => {
   const psHealthVal = document.getElementById('ps_health_val');
   const psSpd = document.getElementById('ps_speed');
   const psSpdVal = document.getElementById('ps_speed_val');
+
   if(psDmg && psDmgVal){ const pct = Math.round(((GAME_CONFIG.playerDamageMult||1) - 1) * 100); psDmg.value = Math.max(0, pct); psDmgVal.textContent = psDmg.value + '%'; psDmg.oninput = psDmg.onchange = () => { const mult = 1 + (Number(psDmg.value)/100); GAME_CONFIG.playerDamageMult = mult; psDmgVal.textContent = psDmg.value + '%'; } }
   if(psAttack && psAttackVal){ const pct = Math.round(((GAME_CONFIG.playerAttackMult||1) - 1) * 100 || 0); psAttack.value = Math.max(0, pct); psAttackVal.textContent = psAttack.value + '%'; psAttack.oninput = psAttack.onchange = () => { const mult = 1 + (Number(psAttack.value)/100); GAME_CONFIG.playerAttackMult = mult; psAttackVal.textContent = psAttack.value + '%'; } }
   if(psDef && psDefVal){ psDef.value = GAME_CONFIG.playerDefencePct || 0; psDefVal.textContent = psDef.value + '%'; psDef.oninput = psDef.onchange = () => { GAME_CONFIG.playerDefencePct = Math.min(95, Number(psDef.value)); psDefVal.textContent = psDef.value + '%'; } }
   if(psHealth && psHealthVal){ psHealth.value = state.player.maxHp || GAME_CONFIG.playerBaseMaxHp || 10; psHealthVal.textContent = psHealth.value; psHealth.oninput = psHealth.onchange = () => { const v = Math.max(1, Number(psHealth.value)); state.player.maxHp = v; GAME_CONFIG.playerBaseMaxHp = v; state.player.hp = Math.min(state.player.hp, state.player.maxHp); psHealthVal.textContent = psHealth.value; } }
   if(psSpd && psSpdVal){ const pct = Math.round(((GAME_CONFIG.playerSpeedMult||1) - 1) * 100); psSpd.value = Math.max(0, pct); psSpdVal.textContent = psSpd.value + '%'; psSpd.oninput = psSpd.onchange = () => { const mult = 1 + (Number(psSpd.value)/100); GAME_CONFIG.playerSpeedMult = mult; psSpdVal.textContent = psSpd.value + '%'; } }
-  // Luck (percent)
-  const psLuck = document.getElementById('ps_luck');
-  const psLuckVal = document.getElementById('ps_luck_val');
-  if(psLuck && psLuckVal){ const pct = Math.round((GAME_CONFIG.playerLuckPct||0)); psLuck.value = Math.max(0, pct); psLuckVal.textContent = psLuck.value + '%'; psLuck.oninput = psLuck.onchange = () => { const v = Math.max(0, Math.min(100, Number(psLuck.value))); GAME_CONFIG.playerLuckPct = v; psLuckVal.textContent = psLuck.value + '%'; } }
+  
+const psLuck = document.getElementById('ps_luck');
+const psLuckVal = document.getElementById('ps_luck_val');
+if (psLuck && psLuckVal) {
+  // initialize from GAME_CONFIG
+  psLuck.value = GAME_CONFIG.playerLuckPct || 0;
+  psLuckVal.textContent = psLuck.value + '%';
+
+  // update on change
+  psLuck.oninput = psLuck.onchange = () => {
+    const v = Math.max(0, Math.min(100, Number(psLuck.value)));
+    GAME_CONFIG.playerLuckPct = v;
+    psLuckVal.textContent = v + '%';
+  };
+}
+// ---------- Player Stats Sliders ----------
+function bindStatSlider(id, valId, min, max, applyFn, formatFn = v => v) {
+  const el = document.getElementById(id);
+  const valEl = document.getElementById(valId);
+  if (!el || !valEl) return;
+
+  // initialize from GAME_CONFIG
+  const current = applyFn('get');
+  el.value = Math.max(min, Math.min(max, current));
+  valEl.textContent = formatFn(el.value);
+
+  // update on change
+  el.oninput = el.onchange = () => {
+    const v = Math.max(min, Math.min(max, Number(el.value)));
+    applyFn('set', v);
+    valEl.textContent = formatFn(v);
+  };
+}
+
+// Damage (% over baseline)
+bindStatSlider("ps_damage", "ps_damage_val", 0, 200,
+  (mode, v) => mode === 'get' ? Math.round((GAME_CONFIG.playerDamageMult - 1) * 100) : GAME_CONFIG.playerDamageMult = 1 + v/100,
+  v => v + "%"
+);
+
+// Attack Speed (% over baseline)
+bindStatSlider("ps_attack", "ps_attack_val", 0, 200,
+  (mode, v) => mode === 'get' ? Math.round((GAME_CONFIG.playerAttackMult - 1) * 100) : GAME_CONFIG.playerAttackMult = 1 + v/100,
+  v => v + "%"
+);
+
+// Defence (% damage reduction)
+bindStatSlider("ps_defence", "ps_defence_val", 0, 95,
+  (mode, v) => mode === 'get' ? GAME_CONFIG.playerDefencePct : GAME_CONFIG.playerDefencePct = v,
+  v => v + "%"
+);
+
+// Health (max HP boost)
+bindStatSlider("ps_health", "ps_health_val", 0, 300,
+  (mode, v) => mode === 'get' ? (GAME_CONFIG.playerBaseMaxHp - 10) : GAME_CONFIG.playerBaseMaxHp = 10 + v,
+  v => v
+);
+
+// Speed (% over baseline)
+bindStatSlider("ps_speed", "ps_speed_val", 0, 200,
+  (mode, v) => mode === 'get' ? Math.round((GAME_CONFIG.playerSpeedMult - 1) * 100) : GAME_CONFIG.playerSpeedMult = 1 + v/100,
+  v => v + "%"
+);
+
+// Luck (%)
+bindStatSlider("ps_luck", "ps_luck_val", 0, 100,
+  (mode, v) => mode === 'get' ? GAME_CONFIG.playerLuckPct : GAME_CONFIG.playerLuckPct = v,
+  v => v + "%"
+);
+
+  
   // ensure menu shown until user clicks Play
   showMainMenu(true);
 
@@ -1229,9 +1382,19 @@ function updatePhysics(dt){
 
   updateParticles(dt);
 }
+function drawCheatsBanner() {
+  if (enableCheats && enableCheats.checked) {
+    ctx.save();
+    ctx.fillStyle = "rgba(255,0,0,0.7)";
+    ctx.font = "16px system-ui, Arial";
+    ctx.fillText("CHEATS ENABLED", 10, 20);
+    ctx.restore();
+  }
+}
 
 // ---------- Render ----------
 function render(){
+  drawCheatsBanner();
   ctx.save();
   let shakeOffsetX = 0, shakeOffsetY = 0;
   if(shake.time > 0){ const s = shake.intensity * (shake.time / 0.18); shakeOffsetX = (Math.random()*2-1)*s; shakeOffsetY = (Math.random()*2-1)*s; }

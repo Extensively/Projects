@@ -78,3 +78,7 @@ v1.4 - November 5, 2025 - The statistics and settings Update
 
 v1.4.1 - November 5, 2025
 - Changed attributes to a percentage system.
+
+v1.4.2 - November 7, 2025
+- Attempted to add a second radar graph
+- Added debug toggles
