@@ -105,6 +105,10 @@ const ENEMY_PATROL_SPEED = 1.5 * FPS_BASIS;
 const BULLET_SPEED_SCALE = FPS_BASIS;
 const shake = { intensity: 0, time: 0 };
 
+let ENEMY_HP_SCALE = 25;
+let ENEMY_SPEED_SCALE = 5;
+let ENEMY_DMG_SCALE = 10;
+
 // ---------- DOM / Settings ----------
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -256,7 +260,11 @@ const WEAPON_CONFIG = {
   laser:  { speed: 12, color: "#0ff", damage: 2, spreadCount: 1, spreadAngle: 0, attackRate: 2.5,  dropWeight: 15, pierce: 1, pierceDamageLoss: 0.4 }, // stronger, slower, small pierce
   spread: { speed:  7, color: "#f0f", damage: 1, spreadCount: 3, spreadAngle: 10,  attackRate: 3.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 },  // multi-shot, mid speed
   railgun: { speed:  25, color: "rgba(255, 85, 0, 1)", damage: 5, spreadCount: 1, spreadAngle: 0,  attackRate: 1.0,  dropWeight: 5, pierce: 4, pierceDamageLoss: 0.35 },  // high damage, pierces several targets but loses damage each hit
-  machine_gun: { speed:  7, color: "rgba(76, 0, 255, 1)", damage: 1, spreadCount: 1, spreadAngle: 0,  attackRate: 10.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 }  // mid speed, low attack damage, high attack speed
+  machine_gun: { speed:  7, color: "rgba(76, 0, 255, 1)", damage: 1, spreadCount: 1, spreadAngle: 0,  attackRate: 10.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 },  // mid speed, low attack damage, high attack speed
+  nail_gun: { speed: 6, color: "rgba(200, 200, 50, 1)", damage: 2, spreadCount: 5, spreadAngle: 15, attackRate: 4.0, dropWeight: 8, pierce: 2, pierceDamageLoss: 0.3 }, // shotgun style, multiple pellets with some pierce
+  sniper: { speed: 20, color: "rgba(255, 0, 0, 1)", damage: 8, spreadCount: 1, spreadAngle: 0, attackRate: 0.8, dropWeight: 2, pierce: 5, pierceDamageLoss: 0.2 }, // very high damage, high pierce, very slow attack rate
+  mortar: { speed: 5, color: "rgba(0, 255, 0, 1)", damage: 6, spreadCount: 1, spreadAngle: 0, attackRate: 0.5, dropWeight: 1, pierce: 0, pierceDamageLoss: 0.0 } // very high damage, arcing projectile, very slow attack rate
+
 
 };
 // keep a deep copy of defaults so we can reset per-weapon
@@ -317,24 +325,103 @@ function shootBullet() { shootBulletAtMouse(); }
 
 // ---------- Entities ----------
 class Platform { constructor(x,y,w,h){this.x=x;this.y=y;this.w=w;this.h=h;this.color="#444"} draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h) } }
+
+// Enemy type registry
+const ENEMY_TYPES = {
+  circle: {
+    name: "Circle",
+    color: "#e55",
+    w: 30, h: 30,
+    maxHp: 6,
+    behaviors: ["patrol", "jump", "shooter", "chase", "ranged"],
+    weight: 3
+  },
+  triangle: {
+    name: "Triangle",
+    color: "#ffdf55",
+    w: 30, h: 30,
+    maxHp: 6,
+    behaviors: ["patrol", "jump", "shooter", "chase", "ranged"],
+    weight: 2
+  },
+  square: {
+    name: "Square",
+    color: "#55f",
+    w: 36, h: 36,
+    maxHp: 12,
+    behaviors: ["patrol", "shooter", "chase", "ranged"],
+    weight: 1
+  },
+  fast: {
+    name: "Fast",
+    color: "#0cf",
+    w: 24, h: 24,
+    maxHp: 4,
+    behaviors: ["patrol", "chase"],
+    speedMult: 2.0,
+    weight: 1
+  }
+  // ...add more as needed...
+};
+
+// ...existing code...
 class Enemy {
-  constructor(x,y,type,behavior="patrol"){
-    this.x=x;this.y=y;this.w=30;this.h=30;this.type=type;this.behavior=behavior;
-    this.baseColor = type==="circle" ? "#e55" : "#ffdf55";
-    this.color=this.baseColor; this.vx = behavior==="patrol" ? (rng()<0.5?-ENEMY_PATROL_SPEED:ENEMY_PATROL_SPEED) : 0;
-    this.vy=0; this.maxHp=6; this.hp=this.maxHp; this.onGround=false;
-    this.jumpCooldown = rng()*1.0; this.shootCooldown = rng()*2.0 + 1.0; this.hitTimer=0;
+  constructor(x, y, typeKey, behavior = "patrol") {
+    const type = ENEMY_TYPES[typeKey] || ENEMY_TYPES.circle;
+    this.typeKey = typeKey;
+    this.x = x;
+    this.y = y;
+    this.w = type.w;
+    this.h = type.h;
+    this.type = typeKey;
+    this.behavior = behavior;
+    this.baseColor = type.color;
+    this.color = this.baseColor;
+
+    // --- Level scaling ---
+    const floor = (state.floor || 1);
+    const hpScale = 1 + (floor - 1) * (ENEMY_HP_SCALE / 100);
+    const speedScale = 1 + (floor - 1) * (ENEMY_SPEED_SCALE / 100);
+    const dmgScale = 1 + (floor - 1) * (ENEMY_DMG_SCALE / 100);
+
+    this.maxHp = Math.round(type.maxHp * hpScale);
+    this.hp = this.maxHp;
+    this.speedMult = (type.speedMult || 1) * speedScale;
+    this.damage = Math.round((type.damage || 1) * dmgScale);
+
+    this.vx = 0;
+    this.vy = 0;
+    this.onGround = false;
+    this.jumpCooldown = rng() * 1.0;
+    this.shootCooldown = rng() * 2.0 + 1.0;
+    this.hitTimer = 0;
   }
-  draw(){
-    ctx.fillStyle=this.color;
-    if(this.type==="circle"){ ctx.beginPath(); ctx.arc(this.x-cameraOffsetX+this.w/2,this.y+this.h/2,this.w/2,0,Math.PI*2); ctx.fill(); }
-    else { ctx.beginPath(); ctx.moveTo(this.x-cameraOffsetX,this.y+this.h); ctx.lineTo(this.x-cameraOffsetX+this.w/2,this.y); ctx.lineTo(this.x-cameraOffsetX+this.w,this.y+this.h); ctx.closePath(); ctx.fill(); }
-    const barW=this.w, barH=5, barX=this.x-cameraOffsetX, barY=this.y-8;
-    ctx.fillStyle="rgba(0,0,0,0.6)"; ctx.fillRect(barX-1,barY-1,barW+2,barH+2);
-    const pct = Math.max(0,Math.min(1,this.hp/this.maxHp));
-    ctx.fillStyle="rgba(255,60,60,0.95)"; ctx.fillRect(barX,barY,Math.floor(barW*pct),barH);
+  draw() {
+    ctx.fillStyle = this.color;
+    if (this.typeKey === "circle") {
+      ctx.beginPath();
+      ctx.arc(this.x - cameraOffsetX + this.w / 2, this.y + this.h / 2, this.w / 2, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (this.typeKey === "triangle") {
+      ctx.beginPath();
+      ctx.moveTo(this.x - cameraOffsetX, this.y + this.h);
+      ctx.lineTo(this.x - cameraOffsetX + this.w / 2, this.y);
+      ctx.lineTo(this.x - cameraOffsetX + this.w, this.y + this.h);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // Default: square
+      ctx.fillRect(this.x - cameraOffsetX, this.y, this.w, this.h);
+    }
+    // HP bar
+    const barW = this.w, barH = 5, barX = this.x - cameraOffsetX, barY = this.y - 8;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+    const pct = Math.max(0, Math.min(1, this.hp / this.maxHp));
+    ctx.fillStyle = "rgba(255,60,60,0.95)";
+    ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
   }
-  applyDamage(dmg, sourceVx=0){
+    applyDamage(dmg, sourceVx=0){
     this.hp -= dmg; this.hitTimer = 0.2; this.color="#fff"; this.vx += (sourceVx||0)*0.6;
     spawnParticles(this.x+this.w/2,this.y+this.h/2, GAME_CONFIG.particleCountOnHit || 12); shakeScreen(1.6,0.2);
   }
@@ -344,13 +431,58 @@ class Enemy {
       if(this.jumpCooldown<=0 && this.onGround){ this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng()*1.0; }
       if(this.jumpCooldown>0) this.jumpCooldown = Math.max(0,this.jumpCooldown - dt);
     }
-    if(this.behavior==="shooter"){
-      if(this.shootCooldown<=0){
-        const vx = (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS;
-        const vy = 0;
+    this.vy += GRAVITY * dt;
+    this.x += this.vx * dt;
+    this.y += this.vy * dt;
+
+    // --- NEW AI BEHAVIORS ---
+    if(this.behavior === "chase") {
+      // Move toward player horizontally
+      const px = state.player.x + state.player.w/2;
+      const ex = this.x + this.w/2;
+      const dir = px > ex ? 1 : -1;
+      this.vx = dir * ENEMY_PATROL_SPEED * this.speedMult;
+      if(this.onGround && Math.abs(px - ex) < 40 && state.player.y + state.player.h < this.y) {
+        this.vy = -JUMP_SPEED * 0.5;
+      }
+    } else if(this.behavior === "ranged") {
+      // Maintain distance: approach if too far, retreat if too close
+      const px = state.player.x + state.player.w/2;
+      const ex = this.x + this.w/2;
+      const dist = px - ex;
+      const absDist = Math.abs(dist);
+      const minDist = 180, maxDist = 260;
+      if(absDist < minDist) {
+        this.vx = -Math.sign(dist) * ENEMY_PATROL_SPEED * this.speedMult; // back away
+      } else if(absDist > maxDist) {
+        this.vx = Math.sign(dist) * ENEMY_PATROL_SPEED * this.speedMult; // approach
+      } else {
+        this.vx = 0; // hold position
+      }
+      // Shoot if within range and cooldown
+      if(this.shootCooldown<=0 && absDist < maxDist && absDist > minDist/2){
+        const dx = px - ex;
+        const dy = (state.player.y + state.player.h/2) - (this.y + this.h/2);
+        const mag = Math.hypot(dx, dy) || 1;
+        const vx = dx / mag * 6 * FPS_BASIS;
+        const vy = dy / mag * 6 * FPS_BASIS;
         enemyBullets.push({ x:this.x+this.w/2, y:this.y+this.h/2, vx, vy, w:6, h:6, color:"#f80", damage:1, angle:Math.atan2(vy,vx) });
         this.shootCooldown = 2.0 + rng()*1.5;
-      } else this.shootCooldown = Math.max(0,this.shootCooldown - dt);
+      }
+      if(this.shootCooldown>0) this.shootCooldown = Math.max(0,this.shootCooldown - dt);
+    } else if(this.behavior==="jump"){
+      if(this.jumpCooldown<=0 && this.onGround){ this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng()*1.0; }
+      if(this.jumpCooldown>0) this.jumpCooldown = Math.max(0,this.jumpCooldown - dt);
+      if(this.behavior==="shooter"){
+        if(this.shootCooldown<=0){
+          const vx = (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS;
+          const vy = 0;
+          enemyBullets.push({ x:this.x+this.w/2, y:this.y+this.h/2, vx, vy, w:6, h:6, color:"#f80", damage:1, angle:Math.atan2(vy,vx) });
+          this.shootCooldown = 2.0 + rng()*1.5;
+        } else this.shootCooldown = Math.max(0,this.shootCooldown - dt);
+      }
+    } else if(this.behavior==="patrol"){
+      if(this.vx === 0) this.vx = (rng() < 0.5 ? -ENEMY_PATROL_SPEED : ENEMY_PATROL_SPEED) * this.speedMult;
     }
     this.vy += GRAVITY * dt;
     this.x += this.vx * dt;
@@ -437,25 +569,40 @@ function generatePlatforms(startX = 0, count = GEN_CHUNK_SIZE){
   return ret;
 }
 
-function spawnEnemiesOn(platformArray, preferVisible=false){
-  if(!toggleSpawn || !toggleSpawn.checked) return;
-  for(let plat of platformArray){
-    if(plat===floor) continue;
-    if(rng() < ENEMY_SPAWN_CHANCE){
-      const type = rng() < 0.5 ? "circle" : "triangle";
-      const r = rng(); const behavior = r < 0.55 ? "patrol" : (r < 0.8 ? "jump" : "shooter");
-      const minX = plat.x + 12; const maxX = Math.max(minX+8, plat.x + plat.w - 40);
-      let ex = minX + Math.floor(rng()*Math.max(1,(maxX-minX)));
-      if(preferVisible){
+function spawnEnemiesOn(platformArray, preferVisible = false) {
+  if (!toggleSpawn || !toggleSpawn.checked) return;
+  let availableTypes = ["circle", "triangle"];
+  if ((state.floor || 1) >= 3) availableTypes.push("square");
+  if ((state.floor || 1) >= 5) availableTypes.push("fast");
+
+  // Build weighted pool
+  let weightedPool = [];
+  for (let typeKey of availableTypes) {
+    const weight = ENEMY_TYPES[typeKey]?.weight || 1;
+    for (let i = 0; i < weight; i++) weightedPool.push(typeKey);
+  }
+
+  for (let plat of platformArray) {
+    if (plat === floor) continue;
+    if (rng() < ENEMY_SPAWN_CHANCE) {
+      const typeKey = weightedPool[Math.floor(rng() * weightedPool.length)];
+      const type = ENEMY_TYPES[typeKey];
+      const behaviors = type.behaviors;
+      const behavior = behaviors[Math.floor(rng() * behaviors.length)];
+      const minX = plat.x + 12;
+      const maxX = Math.max(minX + 8, plat.x + plat.w - 40);
+      let ex = minX + Math.floor(rng() * Math.max(1, (maxX - minX)));
+      if (preferVisible) {
         const visibleMin = Math.max(0, state.player.x - 80);
         const visibleMax = state.player.x + canvas.width + 80;
-        if(ex < visibleMin) ex = Math.min(maxX, visibleMin + Math.floor(rng()*Math.min(200, visibleMax-visibleMin)));
-        if(ex > visibleMax) ex = Math.max(minX, visibleMax - Math.floor(rng()*Math.min(200, visibleMax-visibleMin)));
+        if (ex < visibleMin) ex = Math.min(maxX, visibleMin + Math.floor(rng() * Math.min(200, visibleMax - visibleMin)));
+        if (ex > visibleMax) ex = Math.max(minX, visibleMax - Math.floor(rng() * Math.min(200, visibleMax - visibleMin)));
       }
-      enemies.push(new Enemy(ex, plat.y - 30, type, behavior));
+      enemies.push(new Enemy(ex, plat.y - type.h, typeKey, behavior));
     }
   }
 }
+
 function spawnDoorsOn(platformArray, guarantee=false){
   for(let plat of platformArray){
     if (rng() < DOOR_SPAWN_CHANCE || (guarantee && doors.length === 0)) {
@@ -500,7 +647,6 @@ function resetWorld(fullHeal = true){
   updateHUD();
 }
 reseed(seed); resetWorld();
-
 // ---------- Attack rate handling ----------
 // enforce global cap AND per-weapon rate (effective rate = min(global, weapon.attackRate))
 function canFireNow() {
@@ -1159,6 +1305,39 @@ bindStatSlider("ps_luck", "ps_luck_val", 0, 100,
       if(collapseBtn) collapseBtn.addEventListener('click', () => { containers.forEach(s => { const w = s.querySelector('.collapsible'); w.style.maxHeight = '0px'; const headingKey = s.dataset.sectionId; collapsedState[headingKey]=true; }); const all = {}; containers.forEach(s => { all[s.dataset.sectionId] = true; }); localStorage.setItem(COLLAPSE_KEY, JSON.stringify(all)); });
     }
   }catch(e){ console.warn('settings collapse/init/reorder failed', e); }
+
+  const hpSlider = document.getElementById('enemyHpScale');
+  const hpVal = document.getElementById('enemyHpScaleVal');
+  const spdSlider = document.getElementById('enemySpeedScale');
+  const spdVal = document.getElementById('enemySpeedScaleVal');
+  const dmgSlider = document.getElementById('enemyDmgScale');
+  const dmgVal = document.getElementById('enemyDmgScaleVal');
+
+  if (hpSlider && hpVal) {
+    hpSlider.value = ENEMY_HP_SCALE;
+    hpVal.textContent = hpSlider.value + '%';
+    hpSlider.oninput = () => {
+      ENEMY_HP_SCALE = Number(hpSlider.value);
+      hpVal.textContent = hpSlider.value + '%';
+    };
+  }
+  if (spdSlider && spdVal) {
+    spdSlider.value = ENEMY_SPEED_SCALE;
+    spdVal.textContent = spdSlider.value + '%';
+    spdSlider.oninput = () => {
+      ENEMY_SPEED_SCALE = Number(spdSlider.value);
+      spdVal.textContent = spdSlider.value + '%';
+    };
+  }
+  if (dmgSlider && dmgVal) {
+    dmgSlider.value = ENEMY_DMG_SCALE;
+    dmgVal.textContent = dmgSlider.value + '%';
+    dmgSlider.oninput = () => {
+      ENEMY_DMG_SCALE = Number(dmgSlider.value);
+      dmgVal.textContent = dmgSlider.value + '%';
+    };
+  }
+
 });
 
 // toggle pause with Escape

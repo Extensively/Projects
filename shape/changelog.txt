@@ -82,3 +82,10 @@ v1.4.1 - November 5, 2025
 v1.4.2 - November 7, 2025
 - Attempted to add a second radar graph
 - Added debug toggles
+
+==========================================================
+
+v1.5 - November 10, 2025 - The Difficulty Update.
+- Added scaling enemy Difficulty
+- Added scaling enemy count
+- Added more AIs to the game!
