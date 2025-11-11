@@ -96,3 +96,4 @@ v1.5.1 - November 11, 2025
 
 v1.5.2 - November 12, 2025
 - Added damage numbers
+- Added weapon upgrades!!!!
