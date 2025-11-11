@@ -89,7 +89,10 @@ v1.5 - November 10, 2025 - The Difficulty Update.
 - Added scaling enemy Difficulty
 - Added more AIs to the game!
 
-v1.5.1
-- Adeed like, a ton of new guns! Enjoy!
+v1.5.1 - November 11, 2025
+- Added like, a ton of new guns! Enjoy!
 - Added a graph to display enemy stats
 - Tweaked spawn rates and fixed enemy scaling
+
+v1.5.2 - November 12, 2025
+- Added damage numbers

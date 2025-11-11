@@ -123,6 +123,10 @@ const livesDisplay = document.getElementById("livesDisplay");
 // wall visual / collision thickness (px)
 const WALL_THICKNESS = 40;
 
+
+
+
+const damageNumbers = [];
 // (fixed canvas size is used to preserve original HUD and aiming math)
 
 // new settings inputs (optional in index.html)
@@ -480,6 +484,17 @@ class Enemy {
     ctx.fillRect(barX, barY, Math.floor(barW * pct), barH);
   }
     applyDamage(dmg, sourceVx=0){
+if (dmg > 0) {
+  damageNumbers.push({
+    x: this.x + this.w / 2,
+    y: this.y,
+    vx: (Math.random() - 0.5) * 1.5, // random slight side movement
+    vy: -1.5 - Math.random(),         // float up
+    value: dmg,
+    alpha: 1,
+    time: 0
+  });
+}
     this.hp -= dmg; this.hitTimer = 0.2; this.color="#fff"; this.vx += (sourceVx||0)*0.6;
     spawnParticles(this.x+this.w/2,this.y+this.h/2, GAME_CONFIG.particleCountOnHit || 12); shakeScreen(1.6,0.2);
   }
@@ -1684,6 +1699,10 @@ function render(){
   }
   ctx.restore();
 
+  // Draw damage numbers on top of everything
+  updateAndDrawDamageNumbers(FIXED_DT);
+
+
   if (!gamePaused) handleAutoFire();
 }
 
@@ -1759,6 +1778,26 @@ window.addEventListener('load', () => {
   setTimeout(refresh, 200);
 });
 
+function applyWeaponUpgrade(choice) {
+  const stat = choice.stat;
+  const pct = choice.rarity.mult;
+  const gunId = state.equippedGun;
+  if (!gunId || !WEAPON_CONFIG[gunId]) return;
+  const gun = WEAPON_CONFIG[gunId];
+  switch(stat) {
+    case 'damage': gun.damage = (gun.damage || 1) * (1 + pct); break;
+    case 'speed': gun.speed = (gun.speed || 8) * (1 + pct); break;
+    case 'attackRate': gun.attackRate = (gun.attackRate || 1) * (1 + pct); break;
+    case 'pierce': gun.pierce = Math.round((gun.pierce || 0) + pct * 10); break;
+    case 'pierceDamageLoss': gun.pierceDamageLoss = Math.max(0, (gun.pierceDamageLoss || 0) - pct); break;
+    case 'spreadCount': gun.spreadCount = Math.round((gun.spreadCount || 1) + pct * 10); break;
+    case 'spreadAngle': gun.spreadAngle = Math.round((gun.spreadAngle || 0) + pct * 10); break;
+  }
+  updateWeaponStatsPanel(gunId);
+  saveGame();
+}
+
+
 function makeUpgradeOptions(){
   const stats = ['Speed','Attack','Damage','Health','Defence','Luck'];
   // pick 3 random (without replacement)
@@ -1770,7 +1809,26 @@ function makeUpgradeOptions(){
     const rarity = weightedPick(rng);
     choices.push({ stat, rarity });
   }
-  return choices;
+
+  // --- Weapon upgrades ---
+  const weaponStats = ['damage', 'speed', 'attackRate', 'pierce', 'pierceDamageLoss', 'spreadCount', 'spreadAngle'];
+  const weaponChoices = [];
+  const weaponPool = weaponStats.slice();
+  let tries = 0;
+  while (weaponChoices.length < 3 && tries < 20) {
+    tries++;
+    const idx = Math.floor(rng()*weaponPool.length);
+    const stat = weaponPool[idx];
+    const rarity = weightedPick(rng);
+
+    // Only allow spread upgrades if Divine
+    if ((stat === 'spreadCount' || stat === 'spreadAngle') && rarity.name !== 'Divine') continue;
+
+    weaponChoices.push({ stat, rarity });
+    weaponPool.splice(idx,1);
+  }
+
+  return { player: choices, weapon: weaponChoices };
 }
 
 let levelMenuOpen = false;
@@ -1814,10 +1872,25 @@ function createLevelMenuIfNeeded(){
   closeBtn.onclick = () => { state.rerollBank = (state.rerollBank||0) + 1; closeLevelMenu(false); advanceFloor(false); document.getElementById('levelMenuReroll').textContent = 'Reroll ('+levelMenuRerolls + (state.rerollBank ? ' +' + state.rerollBank : '') +')'; };
 }
 
+
+
 function renderLevelMenuOptions(){
   const container = document.getElementById('levelMenuOptions'); if(!container) return;
   container.innerHTML = '';
-  currentLevelChoices.forEach((c, idx) => {
+
+  // Make the container a column flexbox
+  container.style.display = 'flex';
+  container.style.flexDirection = 'column';
+  container.style.gap = '18px';
+
+  // Player upgrades (top row)
+  const playerRow = document.createElement('div');
+  playerRow.style.display = 'flex';
+  playerRow.style.flexDirection = 'row';
+  playerRow.style.gap = '8px';
+  playerRow.style.justifyContent = 'center';
+  playerRow.style.marginBottom = '0';
+  currentLevelChoices.player.forEach((c, idx) => {
     const col = document.createElement('div'); col.style.padding='8px'; col.style.width='150px'; col.style.borderRadius='6px';
     // rarity color mapping
     const rarityColors = {
@@ -1828,16 +1901,45 @@ function renderLevelMenuOptions(){
       'Mythic': { bg:'#2b1830', border:'#b14fd1', text:'#f8c' },
       'Divine': { bg:'#2b2a1b', border:'#ffd34d', text:'#fff7c8' }
     };
-  const rc = rarityColors[c.rarity.name] || { bg:'#222', border:'#333', text:'#ffd' };
-  col.style.background = rc.bg; col.style.border = '1px solid ' + rc.border; col.style.color = rc.text;
-  // if Divine, add chroma class
-  if(c.rarity.name === 'Divine') col.classList.add('divine-chroma');
+    const rc = rarityColors[c.rarity.name] || { bg:'#222', border:'#333', text:'#ffd' };
+    col.style.background = rc.bg; col.style.border = '1px solid ' + rc.border; col.style.color = rc.text;
+    if(c.rarity.name === 'Divine') col.classList.add('divine-chroma');
     const r = document.createElement('div'); r.textContent = c.rarity.name; r.style.color = rc.text; r.style.fontWeight='700'; col.appendChild(r);
     const s = document.createElement('div'); s.textContent = c.stat; s.style.margin='8px 0'; col.appendChild(s);
     const amt = document.createElement('div'); amt.textContent = '+' + Math.round(c.rarity.mult * 100) + '%'; amt.style.color='#afa'; col.appendChild(amt);
     const take = document.createElement('button'); take.textContent='Take'; take.style.marginTop='8px'; take.onclick = () => { applyUpgrade(c); closeLevelMenu(false); advanceFloor(); }; col.appendChild(take);
-    container.appendChild(col);
+    playerRow.appendChild(col);
   });
+  container.appendChild(playerRow);
+
+  // Weapon upgrades (bottom row)
+  const weaponRow = document.createElement('div');
+  weaponRow.style.display = 'flex';
+  weaponRow.style.flexDirection = 'row';
+  weaponRow.style.gap = '8px';
+  weaponRow.style.justifyContent = 'center';
+  currentLevelChoices.weapon.forEach((c, idx) => {
+    const col = document.createElement('div'); col.style.padding='8px'; col.style.width='150px'; col.style.borderRadius='6px';
+    // rarity color mapping
+    const rarityColors = {
+      'Common': { bg:'#1e1e1e', border:'#444', text:'#ddd' },
+      'Uncommon': { bg:'#113322', border:'#2a8f57', text:'#9ff' },
+      'Rare': { bg:'#1a1a33', border:'#5b6bd6', text:'#aef' },
+      'Legendary': { bg:'#332214', border:'#d48f2a', text:'#ffd' },
+      'Mythic': { bg:'#2b1830', border:'#b14fd1', text:'#f8c' },
+      'Divine': { bg:'#2b2a1b', border:'#ffd34d', text:'#fff7c8' }
+    };
+    const rc = rarityColors[c.rarity.name] || { bg:'#222', border:'#333', text:'#ffd' };
+    col.style.background = rc.bg; col.style.border = '1px solid ' + rc.border; col.style.color = rc.text;
+    if(c.rarity.name === 'Divine') col.classList.add('divine-chroma');
+    const r = document.createElement('div'); r.textContent = c.rarity.name; r.style.color = rc.text; r.style.fontWeight='700'; col.appendChild(r);
+    const s = document.createElement('div'); s.textContent = weaponStatLabel(c.stat); s.style.margin='8px 0'; col.appendChild(s);
+    const amt = document.createElement('div'); amt.textContent = weaponStatAmount(c.stat, c.rarity.mult); amt.style.color='#afa'; col.appendChild(amt);
+    const take = document.createElement('button'); take.textContent='Take'; take.style.marginTop='8px'; take.onclick = () => { applyWeaponUpgrade(c); closeLevelMenu(false); advanceFloor(); }; col.appendChild(take);
+    weaponRow.appendChild(col);
+  });
+  container.appendChild(weaponRow);
+
   // update odds panel in DOM (right side of overlay) if present and if user wants it
   const oddsPanel = document.getElementById('levelMenuOdds');
   const showOddsCheckbox = document.getElementById('showRarityOdds');
@@ -1848,6 +1950,24 @@ function renderLevelMenuOptions(){
   } else if(oddsPanel) {
     oddsPanel.style.display = 'none';
   }
+}
+// Helper for weapon stat labels
+function weaponStatLabel(stat) {
+  switch(stat) {
+    case 'damage': return 'Weapon Damage';
+    case 'speed': return 'Projectile Speed';
+    case 'attackRate': return 'Fire Rate';
+    case 'pierce': return 'Pierce';
+    case 'pierceDamageLoss': return 'Pierce Dmg Loss';
+    case 'spreadCount': return 'Spread Count';
+    case 'spreadAngle': return 'Spread Angle';
+    default: return stat;
+  }
+}
+function weaponStatAmount(stat, mult) {
+  if(stat === 'pierceDamageLoss') return '-' + Math.round(mult * 100) + '%';
+  if(stat === 'spreadCount' || stat === 'pierce' || stat === 'spreadAngle') return '+' + Math.round(mult * 10);
+  return '+' + Math.round(mult * 100) + '%';
 }
 
 
@@ -2081,7 +2201,10 @@ window.addEventListener('load', () => {
 });
 
 function openLevelUpMenu(){
-  if(levelMenuOpen) return; levelMenuOpen = true; gamePaused = true; demoMode = false; createLevelMenuIfNeeded(); levelMenuRerolls = 1; currentLevelChoices = makeUpgradeOptions(); renderLevelMenuOptions(); const overlay = document.getElementById('levelMenuOverlay'); if(overlay) overlay.style.display='flex';
+  if(levelMenuOpen) return; levelMenuOpen = true; gamePaused = true; demoMode = false; createLevelMenuIfNeeded(); levelMenuRerolls = 1;
+  currentLevelChoices = makeUpgradeOptions(); // now returns {player, weapon}
+  renderLevelMenuOptions();
+  const overlay = document.getElementById('levelMenuOverlay'); if(overlay) overlay.style.display='flex';
 }
 
 function closeLevelMenu(fullHeal=false){ levelMenuOpen=false; gamePaused=false; const overlay = document.getElementById('levelMenuOverlay'); if(overlay) overlay.style.display='none'; if(fullHeal){ state.player.hp = state.player.maxHp; } }
@@ -2101,6 +2224,31 @@ function applyUpgrade(choice){
   state.player.hp = state.player.maxHp;
   saveGame();
 }
+
+function updateAndDrawDamageNumbers(dt) {
+  for (let i = damageNumbers.length - 1; i >= 0; i--) {
+    const dn = damageNumbers[i];
+    dn.x += dn.vx * dt * 60;
+    dn.y += dn.vy * dt * 60;
+    dn.vy += 0.08 * dt * 60; // gravity
+    dn.time += dt;
+    dn.alpha = 1 - dn.time / 0.8; // fade out over 0.8s
+
+    // Draw
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, dn.alpha);
+    ctx.font = "bold 20px Arial";
+    ctx.fillStyle = "#ff4444";
+    ctx.strokeStyle = "#000";
+    ctx.lineWidth = 2;
+    ctx.strokeText(dn.value, dn.x - cameraOffsetX, dn.y);
+    ctx.fillText(dn.value, dn.x - cameraOffsetX, dn.y);
+    ctx.restore();
+
+    if (dn.alpha <= 0) damageNumbers.splice(i, 1);
+  }
+}
+
 
 function advanceFloor(fullHeal = true){ state.floor = (state.floor||0) + 1; reseed(Math.floor(Math.random()*1e9)); resetWorld(fullHeal); }
 
