@@ -219,20 +219,7 @@ if (toggleDebug) {
     }
   });
 }
-const enableCheats = document.getElementById("enableCheats");
-const cheatsNotice = document.getElementById("cheatsNotice");
 
-function updateCheatVisibility() {
-  const cheatSections = document.querySelectorAll(".cheat-only");
-  const cheatsOn = enableCheats && enableCheats.checked;
-  cheatSections.forEach(sec => sec.style.display = cheatsOn ? "block" : "none");
-  if (cheatsNotice) cheatsNotice.style.display = cheatsOn ? "block" : "none";
-}
-
-if (enableCheats) {
-  enableCheats.addEventListener("change", updateCheatVisibility);
-  updateCheatVisibility(); // initialize
-}
 
 
 // ---------- RNG ----------
@@ -256,15 +243,23 @@ const WEAPON_CONFIG = {
   
   // pierce: how many additional targets the projectile can pass through (0 = no piercing)
   // pierceDamageLoss: fraction [0..1] of damage lost per pierce (e.g. 0.25 loses 25% of damage each pierce)
-  basic:  { speed:  8, color: "#fff", damage: 1, spreadCount: 1, spreadAngle: 0, attackRate: 6.0,  dropWeight: 40, pierce: 0, pierceDamageLoss: 0.0 }, // common, moderate fire
-  laser:  { speed: 12, color: "#0ff", damage: 2, spreadCount: 1, spreadAngle: 0, attackRate: 2.5,  dropWeight: 15, pierce: 1, pierceDamageLoss: 0.4 }, // stronger, slower, small pierce
-  spread: { speed:  7, color: "#f0f", damage: 1, spreadCount: 3, spreadAngle: 10,  attackRate: 3.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 },  // multi-shot, mid speed
-  railgun: { speed:  25, color: "rgba(255, 85, 0, 1)", damage: 5, spreadCount: 1, spreadAngle: 0,  attackRate: 1.0,  dropWeight: 5, pierce: 4, pierceDamageLoss: 0.35 },  // high damage, pierces several targets but loses damage each hit
-  machine_gun: { speed:  7, color: "rgba(76, 0, 255, 1)", damage: 1, spreadCount: 1, spreadAngle: 0,  attackRate: 10.0,  dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 },  // mid speed, low attack damage, high attack speed
+  basic:  { speed:  8, color: "#fff", damage: 1, spreadCount: 1, spreadAngle: 0, attackRate: 6.0,  dropWeight: 400, pierce: 0, pierceDamageLoss: 0.0 }, // common, moderate fire
+  laser:  { speed: 12, color: "#0ff", damage: 2, spreadCount: 1, spreadAngle: 0, attackRate: 2.5,  dropWeight: 150, pierce: 1, pierceDamageLoss: 0.4 }, // stronger, slower, small pierce
+  spread: { speed:  7, color: "#f0f", damage: 1, spreadCount: 3, spreadAngle: 10,  attackRate: 3.0,  dropWeight: 100, pierce: 0, pierceDamageLoss: 0.0 },  // multi-shot, mid speed
+  railgun: { speed:  25, color: "rgba(255, 85, 0, 1)", damage: 5, spreadCount: 1, spreadAngle: 0,  attackRate: 1.0,  dropWeight: 50, pierce: 4, pierceDamageLoss: 0.35 },  // high damage, pierces several targets but loses damage each hit
+  machine_gun: { speed:  7, color: "rgba(76, 0, 255, 1)", damage: 1, spreadCount: 1, spreadAngle: 0,  attackRate: 10.0,  dropWeight: 100, pierce: 0, pierceDamageLoss: 0.0 },  // mid speed, low attack damage, high attack speed
   nail_gun: { speed: 6, color: "rgba(200, 200, 50, 1)", damage: 2, spreadCount: 5, spreadAngle: 15, attackRate: 4.0, dropWeight: 8, pierce: 2, pierceDamageLoss: 0.3 }, // shotgun style, multiple pellets with some pierce
-  sniper: { speed: 20, color: "rgba(255, 0, 0, 1)", damage: 8, spreadCount: 1, spreadAngle: 0, attackRate: 0.8, dropWeight: 2, pierce: 5, pierceDamageLoss: 0.2 }, // very high damage, high pierce, very slow attack rate
-  mortar: { speed: 5, color: "rgba(0, 255, 0, 1)", damage: 6, spreadCount: 1, spreadAngle: 0, attackRate: 0.5, dropWeight: 1, pierce: 0, pierceDamageLoss: 0.0 } // very high damage, arcing projectile, very slow attack rate
-
+  sniper: { speed: 20, color: "rgba(255, 0, 0, 1)", damage: 8, spreadCount: 1, spreadAngle: 0, attackRate: 0.8, dropWeight: 20, pierce: 5, pierceDamageLoss: 0.2 }, // very high damage, high pierce, very slow attack rate
+  mortar: { speed: 5, color: "rgba(0, 255, 0, 1)", damage: 6, spreadCount: 1, spreadAngle: 0, attackRate: 0.5, dropWeight: 10, pierce: 0, pierceDamageLoss: 0.0 }, // very high damage, arcing projectile, very slow attack rate
+  plasma: { speed: 9, color: "rgba(0, 255, 255, 1)", damage: 3, spreadCount: 1, spreadAngle: 0, attackRate: 2.0, dropWeight: 40, pierce: 2, pierceDamageLoss: 0.25 }, // energy weapon, moderate damage and pierce
+  wave: { speed: 8, color: "rgba(255, 0, 255, 1)", damage: 2, spreadCount: 3, spreadAngle: 20, attackRate: 3.5, dropWeight: 30, pierce: 1, pierceDamageLoss: 0.3 }, // wave-like spread shot with some pierce
+  lightning: { speed: 15, color: "rgba(255, 255, 0, 1)", damage: 4, spreadCount: 1, spreadAngle: 0, attackRate: 1.5, dropWeight: 20, pierce: 3, pierceDamageLoss: 0.4 }, // fast energy bolt with moderate pierce
+  ultra: { speed: 18, color: "rgba(255, 128, 0, 1)", damage: 10, spreadCount: 1, spreadAngle: 0, attackRate: 0.6, dropWeight: 4, pierce: 6, pierceDamageLoss: 0.15 }, // ultimate weapon, very high damage and pierce, very slow
+  kinetic: { speed: 14, color: "rgba(128, 128, 128, 1)", damage: 3, spreadCount: 1, spreadAngle: 0, attackRate: 2.2, dropWeight: 25, pierce: 2, pierceDamageLoss: 0.2 }, // balanced kinetic weapon
+  drill: { speed: 10, color: "rgba(0, 128, 255, 1)", damage: 2, spreadCount: 1, spreadAngle: 0, attackRate: 3.8, dropWeight: 15, pierce: 4, pierceDamageLoss: 0.3 }, // piercing weapon with moderate damage
+  divine: { speed: 12, color: "rgba(255, 215, 0, 1)", damage: 4, spreadCount: 1, spreadAngle: 0, attackRate: 1.8, dropWeight: 10, pierce: 5, pierceDamageLoss: 0.25 }, // holy energy weapon with high pierce
+  magnetic: { speed: 11, color: "rgba(0, 255, 128, 1)", damage: 3, spreadCount: 1, spreadAngle: 0, attackRate: 2.5, dropWeight: 18, pierce: 3, pierceDamageLoss: 0.2 }, // magnetic projectile with balanced stats
+  absolute_finality: { speed: 20, color: "rgba(255, 20, 147, 1)", damage: 12, spreadCount: 1, spreadAngle: 0, attackRate: 0.4, dropWeight: 1, pierce: 8, pierceDamageLoss: 0.1 } // ultimate endgame weapon
 
 };
 // keep a deep copy of defaults so we can reset per-weapon
@@ -291,6 +286,69 @@ const state = {
 // reroll bank persists between levels
 state.rerollBank = 0;
 let cameraOffsetX = 0;
+
+
+const CHEAT_WATERMARK_KEY = "cheatsUsed";
+
+// Show watermark
+function showCheatWatermark() {
+  let wm = document.getElementById("cheatWatermark");
+  if (!wm) {
+    wm = document.createElement("div");
+    wm.id = "cheatWatermark";
+    wm.textContent = "CHEATS USED";
+    wm.style.position = "fixed";
+    wm.style.right = "24px";
+    wm.style.bottom = "18px";
+    wm.style.color = "#ff4444";
+    wm.style.fontWeight = "bold";
+    wm.style.fontSize = "22px";
+    wm.style.opacity = "0.85";
+    wm.style.pointerEvents = "none";
+    wm.style.zIndex = "2000";
+    document.body.appendChild(wm);
+  }
+  wm.style.display = "block";
+}
+
+// Hide watermark
+function hideCheatWatermark() {
+  let wm = document.getElementById("cheatWatermark");
+  if (wm) wm.style.display = "none";
+}
+
+// Set/clear cheats used in localStorage
+function setCheatsUsed() {
+  localStorage.setItem(CHEAT_WATERMARK_KEY, "1");
+  showCheatWatermark();
+}
+function clearCheatsUsed() {
+  localStorage.removeItem(CHEAT_WATERMARK_KEY);
+  hideCheatWatermark();
+}
+function cheatsWereUsed() {
+  return localStorage.getItem(CHEAT_WATERMARK_KEY) === "1";
+}
+
+// On load, wire up cheat toggle and section
+window.addEventListener("load", () => {
+  // Show watermark if cheats were used
+  if (cheatsWereUsed()) showCheatWatermark();
+
+  // Wire up cheat toggle and section
+  const cheatToggle = document.getElementById("cheatModeToggle");
+  const cheatSection = document.getElementById("cheatSection");
+  if (cheatToggle && cheatSection) {
+    cheatToggle.checked = false;
+    cheatSection.disabled = true;
+    cheatToggle.addEventListener("change", () => {
+      cheatSection.disabled = !cheatToggle.checked;
+      if (cheatToggle.checked) setCheatsUsed();
+    });
+  }
+});
+
+
 
 // ---------- Particle pool ----------
 // Particle settings (can be updated from settings UI)
@@ -1044,7 +1102,7 @@ function loadGame(){
     return true;
   } catch(e){ debugLog('Load failed: ' + e.message); return false; }
 }
-function resetSave(){ localStorage.removeItem(SAVE_KEY); debugLog('Save cleared'); }
+function resetSave(){ localStorage.removeItem(SAVE_KEY); debugLog('Save cleared'); clearCheatsUsed();}
 
 // ---------------- Main Menu / Pause ----------------
 let gamePaused = true; // start paused (main menu)
@@ -1154,6 +1212,8 @@ function bindStatSlider(id, valId, min, max, applyFn, formatFn = v => v) {
     valEl.textContent = formatFn(v);
   };
 }
+
+
 
 // Damage (% over baseline)
 bindStatSlider("ps_damage", "ps_damage_val", 0, 200,
@@ -1458,7 +1518,10 @@ function updatePhysics(dt){
         }
       }
     }
-    if(state.player.x < e.x + e.w && state.player.x + state.player.w > e.x && state.player.y < e.y + e.h && state.player.y + state.player.h > e.y){ damagePlayer(1, e.vx || 0); state.player.vy = -JUMP_SPEED * 0.5; }
+    if(state.player.x < e.x + e.w && state.player.x + state.player.w > e.x && state.player.y < e.y + e.h && state.player.y + state.player.h > e.y){
+      damagePlayer(e.damage || 1, e.vx || 0); // Use enemy's scaled damage!
+      state.player.vy = -JUMP_SPEED * 0.5;
+    } 
     if(e.hp <= 0){
       if(toggleLoot && toggleLoot.checked) {
         // tech drop
@@ -1561,19 +1624,9 @@ function updatePhysics(dt){
 
   updateParticles(dt);
 }
-function drawCheatsBanner() {
-  if (enableCheats && enableCheats.checked) {
-    ctx.save();
-    ctx.fillStyle = "rgba(255,0,0,0.7)";
-    ctx.font = "16px system-ui, Arial";
-    ctx.fillText("CHEATS ENABLED", 10, 20);
-    ctx.restore();
-  }
-}
 
 // ---------- Render ----------
 function render(){
-  drawCheatsBanner();
   ctx.save();
   let shakeOffsetX = 0, shakeOffsetY = 0;
   if(shake.time > 0){ const s = shake.intensity * (shake.time / 0.18); shakeOffsetX = (Math.random()*2-1)*s; shakeOffsetY = (Math.random()*2-1)*s; }
@@ -1796,6 +1849,218 @@ function renderLevelMenuOptions(){
     oddsPanel.style.display = 'none';
   }
 }
+
+
+let enemyStatGraphHoverLevel = null; // Track which level the mouse is over
+let enemyStatGraphLockedLevel = null; // Track locked level
+let enemyStatGraphMouseY = null; // Track mouse Y for stat box
+
+function drawEnemyStatGraph() {
+  const canvas = document.getElementById('enemyStatGraph');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  // Graph config
+  const W = canvas.width, H = canvas.height;
+  const margin = 36;
+  const graphW = W - margin * 2, graphH = H - margin * 2;
+  const baseLevel = 1;
+  const playerLevel = state.floor || 1;
+  const minLevel = 0;
+  const maxLevel = playerLevel + 5;
+
+  // Get scaling factors from sliders
+  const hpScale = ENEMY_HP_SCALE / 100;
+  const spdScale = ENEMY_SPEED_SCALE / 100;
+  const dmgScale = ENEMY_DMG_SCALE / 100;
+
+  // Pick a reference enemy type (circle)
+  const baseType = ENEMY_TYPES.circle;
+
+  // Compute stat values for each level
+  const levels = [];
+  for (let lvl = minLevel; lvl <= maxLevel; lvl++) {
+    levels.push({
+      lvl,
+      hp: Math.round(baseType.maxHp * (1 + (lvl - 1) * hpScale)),
+      spd: (baseType.speedMult || 1) * (1 + (lvl - 1) * spdScale),
+      dmg: Math.round((baseType.damage || 1) * (1 + (lvl - 1) * dmgScale))
+    });
+  }
+
+  // Find max values for scaling
+  const maxHp = Math.max(...levels.map(l => l.hp));
+  const maxSpd = Math.max(...levels.map(l => l.spd));
+  const maxDmg = Math.max(...levels.map(l => l.dmg));
+
+  // Draw axes
+  ctx.save();
+  ctx.translate(margin, margin);
+  ctx.strokeStyle = "#444";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(0, 0); ctx.lineTo(0, graphH); ctx.lineTo(graphW, graphH);
+  ctx.stroke();
+
+  // Draw stat lines
+  function plotLine(stat, color, maxVal) {
+    ctx.beginPath();
+    for (let i = 0; i < levels.length; i++) {
+      const x = i / (levels.length - 1) * graphW;      const y = graphH - (levels[i][stat] / maxVal) * graphH;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  plotLine('hp', '#ff6666', maxHp);
+  plotLine('spd', '#66cfff', maxSpd);
+  plotLine('dmg', '#ffd066', maxDmg);
+
+  // Draw legend
+  ctx.font = "12px Arial";
+  ctx.fillStyle = "#ff6666"; ctx.fillText("HP", graphW - 40, 16);
+  ctx.fillStyle = "#66cfff"; ctx.fillText("Speed", graphW - 40, 32);
+  ctx.fillStyle = "#ffd066"; ctx.fillText("Damage", graphW - 40, 48);
+
+  // Draw level labels
+  ctx.fillStyle = "#bbb";
+  ctx.font = "11px Arial";
+  for (let i = 0; i < levels.length; i++) {
+    const x = (levels[i].lvl - minLevel) / (maxLevel - minLevel) * graphW;
+    if (levels[i].lvl % 2 === 0 || levels[i].lvl === playerLevel) {
+      ctx.fillText(levels[i].lvl, x - 6, graphH + 16);
+    }
+  }
+
+  // Draw vertical red line at player level
+  const px = (playerLevel - minLevel) / (maxLevel - minLevel) * graphW;
+  ctx.strokeStyle = "#ff2222";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(px, 0);
+  ctx.lineTo(px, graphH);
+  ctx.stroke();
+
+  // Draw stat values at player level
+  const cur = levels.find(l => l.lvl === playerLevel);
+  if (cur) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "13px Arial";
+    ctx.fillText(`Level ${playerLevel}`, px + 8, 18);
+    ctx.fillStyle = "#ff6666";
+    ctx.fillText(`HP: ${cur.hp}`, px + 8, 36);
+    ctx.fillStyle = "#66cfff";
+    ctx.fillText(`Speed: ${cur.spd.toFixed(2)}`, px + 8, 54);
+    ctx.fillStyle = "#ffd066";
+    ctx.fillText(`Damage: ${cur.dmg}`, px + 8, 72);
+  }
+
+  // --- Moveable/lockable vertical line and stat box ---
+  let hoverLevel = enemyStatGraphLockedLevel !== null ? enemyStatGraphLockedLevel : enemyStatGraphHoverLevel;
+  if (hoverLevel === null) hoverLevel = playerLevel; // fallback to player level
+  if (hoverLevel < minLevel) hoverLevel = minLevel;
+  if (hoverLevel > maxLevel) hoverLevel = maxLevel;
+  const hoverX = (hoverLevel - minLevel) / (maxLevel - minLevel) * graphW;
+
+  // Draw moveable line (blue)
+  ctx.strokeStyle = "#33aaff";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(hoverX, 0);
+  ctx.lineTo(hoverX, graphH);
+  ctx.stroke();
+
+  // Draw stat box at mouse Y (clamped inside graph area)
+  const hoverStats = levels.find(l => l.lvl === hoverLevel);
+  if (hoverStats) {
+    // Use mouse Y if available, else default to middle of graph
+    let boxY = typeof enemyStatGraphMouseY === "number" ? enemyStatGraphMouseY - margin : graphH / 2;
+    // Clamp boxY so it doesn't go outside the graph
+    boxY = Math.max(0, Math.min(graphH - 54, boxY));
+    const boxX = hoverX + 12;
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = "#181c22";
+    ctx.fillRect(boxX, boxY, 110, 54);
+    ctx.globalAlpha = 1.0;
+    ctx.font = "12px Arial";
+    ctx.fillStyle = "#fff";
+    ctx.fillText(`Level ${hoverLevel}`, boxX + 8, boxY + 16);
+    ctx.fillStyle = "#ff6666";
+    ctx.fillText(`HP: ${hoverStats.hp}`, boxX + 8, boxY + 30);
+    ctx.fillStyle = "#66cfff";
+    ctx.fillText(`Speed: ${hoverStats.spd.toFixed(2)}`, boxX + 8, boxY + 44);
+    ctx.fillStyle = "#ffd066";
+    ctx.fillText(`Damage: ${hoverStats.dmg}`, boxX + 8, boxY + 58);
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+// Mouse interaction for the graph with line locking and stat box at mouse
+(function wireEnemyStatGraphMouse() {
+  const canvas = document.getElementById('enemyStatGraph');
+  if (!canvas) return;
+  canvas.style.cursor = "pointer";
+  let lastMouseLevel = null;
+
+  canvas.addEventListener('mousemove', function(e) {
+    if (enemyStatGraphLockedLevel !== null) return; // Don't update if locked
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const margin = 36;
+    const graphW = canvas.width - margin * 2;
+    const minLevel = 0;
+    const playerLevel = state.floor || 1;
+    const maxLevel = playerLevel + 5;
+    let relX = x - margin;
+    relX = Math.max(0, Math.min(graphW, relX));
+    const level = Math.round((relX / graphW) * (maxLevel - minLevel) + minLevel);
+    enemyStatGraphHoverLevel = level;
+    enemyStatGraphMouseY = y;
+    lastMouseLevel = level;
+    drawEnemyStatGraph();
+  });
+  canvas.addEventListener('mouseleave', function() {
+    if (enemyStatGraphLockedLevel === null) {
+      enemyStatGraphHoverLevel = null;
+      enemyStatGraphMouseY = null;
+      drawEnemyStatGraph();
+    }
+  });
+  canvas.addEventListener('click', function(e) {
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    const margin = 36;
+    const graphW = canvas.width - margin * 2;
+    const minLevel = 0;
+    const playerLevel = state.floor || 1;
+    const maxLevel = playerLevel + 5;
+    let relX = x - margin;
+    relX = Math.max(0, Math.min(graphW, relX));
+    const level = Math.round((relX / graphW) * (maxLevel - minLevel) + minLevel);
+
+    if (enemyStatGraphLockedLevel !== null) {
+      // Unlock if already locked
+      enemyStatGraphLockedLevel = null;
+      enemyStatGraphHoverLevel = level;
+      enemyStatGraphMouseY = y;
+    } else {
+      // Lock to current level
+      enemyStatGraphLockedLevel = level;
+      enemyStatGraphMouseY = y;
+    }
+    drawEnemyStatGraph();
+  });
+})();
+
+
 
 // Wire Give Rerolls input/button
 window.addEventListener('load', () => {

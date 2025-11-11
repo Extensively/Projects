@@ -4,7 +4,7 @@
   <link rel="icon" type="image/gif" href="https://extensively.github.io/Projects/img/roach.gif">
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Shapez V1.5</title>
+  <title>Shapez V1.4.1</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body style="color: #FFFFFF;">
@@ -19,6 +19,7 @@
 </div>
 <br>
 <br>
+
   <div id="app">
     <div id="gameArea" style="position:relative;">
   <canvas id="gameCanvas" width="800" height="600"></canvas>
@@ -45,35 +46,43 @@
       </div>
 
     </div>
-<div id="radarContainer" style="display:flex; flex-direction:column; align-items:center;">
-  <div id="radarPanel">
-  <div id="radarPanel">
-    <div style="padding:10px; color:#ffd; font-weight:600;">Player Stats</div>
-    <canvas id="radarCanvas" width="260" height="260" style="display:block; margin:10px auto; background:transparent;"></canvas>
-    <div id="radarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
-      SPD · ATK · DMG · HP · DEF · LCK
-  </div>
-  </div>
-  <div id="weaponRadarPanel" style="margin-top:12px;">
-    <div style="padding:10px; color:#ffd; font-weight:600;">Weapon Stats</div>
-    <canvas id="weaponRadarCanvas" width="260" height="260" style="display:block; margin:10px auto; background:transparent;"></canvas>
-    <div id="weaponRadarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
-      DMG · SPD · ATK · PIERCE · SPREAD · ANGLE · PDL
-    </div>
-</div>
+    <!-- Stats and Graphs Panel -->
+    <div id="radarContainer" style="display:flex; flex-direction:column; align-items:center;">
+      <div id="radarPanel" style="width:100%;">
+        <div id="graphScrollArea">
+          <div style="padding:10px; color:#ffd; font-weight:600;">Player Stats</div>
+          <canvas id="radarCanvas" width="260" height="260"></canvas>
+          <div id="radarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
+            SPD · ATK · DMG · HP · DEF · LCK
+          </div>
+          <div id="weaponRadarPanel" style="margin-top:12px;">
+            <div style="padding:10px; color:#ffd; font-weight:600;">Weapon Stats</div>
+            <canvas id="weaponRadarCanvas" width="260" height="260"></canvas>
+            <div id="weaponRadarLegend" style="color:#bbb; font-size:12px; padding:6px 10px; text-align:center;">
+              DMG · SPD · ATK · PIERCE · SPREAD · ANGLE · PDL
+            </div>
+          </div>
+        <h3>Enemy Stat Scaling Graph</h3>
+        <canvas id="enemyStatGraph" width="300" height="180"></canvas>
 
-  </div>
+        </div>
+      </div>
     </div>
 
     <aside id="settings">
       <style>
         /* Smooth collapse/expand: we animate max-height */
         .collapsible { overflow: hidden; transition: max-height 220ms ease; }
+        /* Responsive graph area and canvases */
+        #graphScrollArea { max-height: 600px; overflow-y: auto; width: 100%; padding-right: 8px; }
+        #graphScrollArea canvas { width: 100% !important; max-width: 600px; height: auto; display: block; margin: 10px auto; }
+        /* Settings header flex row */
+        #settingsHeader { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
       </style>
-      <div style="display:flex; gap:6px; align-items:center;">
-        <button id="toggleSettings">Settings ▸</button>
+      <div id="settingsHeader">
         <button id="expandAll" title="Expand all settings">Expand All</button>
         <button id="collapseAll" title="Collapse all settings">Collapse All</button>
+        <button id="toggleSettings">Settings ▸</button>
       </div>
       <div id="settingsBody" class="collapsed">
         <style>
@@ -83,6 +92,7 @@
           .settings-section h3, .settings-section h4 { display:flex; align-items:center; gap:6px; }
           .settings-section h3 span[title], .settings-section h4 span[title] { display:inline-block; }
         </style>
+
         <h3>Session</h3>
         <div><strong>Seed:</strong> <span id="seedDisplay">-</span></div>
         <h3>Controls</h3>
@@ -107,8 +117,6 @@
           Enable far walls
         </label>
 
-
-        <h3>Combat</h3>
         <h3>Weapon Stats (selected)</h3>
           <div id="weaponStats">
             <label>Damage: <span id="ws_damage_val">-</span>
@@ -136,10 +144,10 @@
           </div>
         <h3>Drops</h3>
           <label>Tech drop rate (per enemy)
-            <input id="dropRateTech" type="number" min="0" max="1" step="0.01" value="0.12" />
+            <input id="dropRateTech" type="number" min="0" max="1" step="0.01" value="0.02" />
           </label>
           <label>Gun drop rate (per enemy)
-            <input id="dropRateGun" type="number" min="0" max="1" step="0.01" value="0.12" />
+            <input id="dropRateGun" type="number" min="0" max="1" step="0.01" value="0.02" />
           </label>
           <div id="dropRatesInfo" style="margin-top:6px; color:#ddd; font-size:13px;">
             Tech drop: <span id="effDropTech">-</span> (base <span id="baseDropTech">0.12</span>)
@@ -148,22 +156,26 @@
           </div>
           <div id="rarityOddsPanel" style="display:none; margin-top:6px; color:#eee; font-size:13px;"></div>
           <h3>Enemies</h3>
-          <label>Enemy spawn chance (per platform)
-            <input id="enemySpawnRate" type="number" min="0" max="1" step="0.01" value="0.45" />
-          <div style="margin-top:10px; margin-bottom:10px;">
-            <label>Enemy HP scaling (% per floor): <span id="enemyHpScaleVal">25%</span>
-              <input id="enemyHpScale" type="range" min="0" max="100" step="1" value="25" />
-            </label>
-            <br>
-            <label>Enemy Speed scaling (% per floor): <span id="enemySpeedScaleVal">5%</span>
-              <input id="enemySpeedScale" type="range" min="0" max="50" step="1" value="5" />
-            </label>
-            <br>
-            <label>Enemy Damage scaling (% per floor): <span id="enemyDmgScaleVal">10%</span>
-              <input id="enemyDmgScale" type="range" min="0" max="50" step="1" value="10" />
-            </label>
-          </div>
+          <label>
+            Enemy HP formula:
+            <input type="text" id="enemyHpFormula" value="6 + 2*x">
           </label>
+          <br>
+          <label>
+            Enemy Speed formula:
+            <input type="text" id="enemySpeedFormula" value="1 + 0.05*x">
+          </label>
+          <br>
+          <label>
+            Enemy Damage formula:
+            <input type="text" id="enemyDmgFormula" value="1 + 0.1*x">
+          </label>
+          <br>
+          <label>
+            Enemy Spawn Rate formula:
+            <input type="text" id="enemySpawnFormula" value="0.15 + 0.02*x">
+          </label>
+          
         <h3>Debug Toggles</h3>
           <label><input type="checkbox" id="toggleSpawn" checked /> Spawn Enemies</label>
           <label><input type="checkbox" id="toggleLoot" checked /> Loot Drops</label>

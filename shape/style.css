@@ -40,9 +40,16 @@ canvas {
   background: transparent;
 }
 
+
+.disabled-section {
+  opacity: 0.5;
+  pointer-events: none;
+  filter: grayscale(1);
+}
+
 /* Sidebar settings */
 #settings {
-  width: 280px;
+  width: 360px;
   max-height: 600px;
   background: linear-gradient(#111, #0f0f0f);
   border: 2px solid #222;
@@ -53,16 +60,17 @@ canvas {
 }
 
 #toggleSettings {
-  position: absolute;
-  right: -56px;
-  top: 8px;
-  transform: rotate(0deg);
+  /* Remove absolute positioning so it stays in the flex row */
+  position: static;
+  right: unset;
+  top: unset;
+  transform: none;
   background: var(--panel);
   color: #fff;
   border: 1px solid #222;
   padding: 6px;
   cursor: pointer;
-  width: 52px;
+  margin-left: auto; /* pushes it to the right in the flex row */
 }
 
 /* Body collapsed by default visually (we keep accessible) */
@@ -203,6 +211,7 @@ html, body {
     max-height: 200px;
     overflow-y: auto;
 }
+
 #radarPanel,
 #weaponRadarPanel {
   display: inline-block;   /* shrink to fit content */
