@@ -388,6 +388,11 @@ function shootBullet() { shootBulletAtMouse(); }
 // ---------- Entities ----------
 class Platform { constructor(x,y,w,h){this.x=x;this.y=y;this.w=w;this.h=h;this.color="#444"} draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h) } }
 
+
+function isBossRound(floor) {
+  return floor > 0 && floor % 10 === 0;
+}
+
 // Enemy type registry
 const ENEMY_TYPES = {
   circle: {
@@ -634,10 +639,20 @@ function handlePlayerDeath(){
 // ---------- Generation ----------
 function generatePlatforms(startX = 0, count = GEN_CHUNK_SIZE){
   const ret = [];
-  for(let i=0;i<count;i++){ const baseSpacing = GEN_SPACING_X; const jitter = Math.floor((rng()*2-1)*GEN_JITTER_X); let x = startX + i*baseSpacing + jitter;
-    if(GEN_CLUSTER>0 && rng()<GEN_CLUSTER) x = (i>0)? (ret[i-1].x + Math.floor(rng()*(baseSpacing/2))) : x;
-    const y = GEN_BASE_Y + Math.floor(rng()*GEN_VAR_Y); const w = GEN_PLAT_W;
-    ret.push(new Platform(x,y,w,18));
+  const leftLimit = leftWallX + leftWallHalf;
+  const rightLimit = rightWallX - rightWallHalf;
+  for(let i=0;i<count;i++){
+    const baseSpacing = GEN_SPACING_X;
+    const jitter = Math.floor((rng()*2-1)*GEN_JITTER_X);
+    let x = startX + i*baseSpacing + jitter;
+    if(GEN_CLUSTER>0 && rng()<GEN_CLUSTER)
+      x = (i>0)? (ret[i-1].x + Math.floor(rng()*(baseSpacing/2))) : x;
+    const y = GEN_BASE_Y + Math.floor(rng()*GEN_VAR_Y);
+    const w = GEN_PLAT_W;
+    // Only add platform if it fits within the wall boundaries
+    if (x >= leftLimit && (x + w) <= rightLimit) {
+      ret.push(new Platform(x, y, w, 18));
+    }
   }
   return ret;
 }
@@ -688,18 +703,70 @@ function spawnDoorsOn(platformArray, guarantee=false){
 
 // ---------- Reset world ----------
 function computeTerrainEnd(){ let maxX=0; for(let p of platforms) maxX = Math.max(maxX, p.x + p.w); return maxX; }
+// ...existing code...
+
 function resetWorld(fullHeal = true){
   rng = mulberry32(seed);
+
+  // --- Calculate level width based on scaling ---
+  const floorNum = state.floor || 1;
+  const BASE_LEVEL_WIDTH = 1200; // base width for level 1
+  const LEVEL_WIDTH_SCALE = 120;  // px per level, or use your slider value
+  const levelWidth = BASE_LEVEL_WIDTH + LEVEL_WIDTH_SCALE * (floorNum - 1);
+
+  // --- Sync platform generation to fill levelWidth ---
+  // Use GEN_SPACING_X and GEN_CHUNK_SIZE to fill levelWidth
+  GEN_SPACING_X = Math.max(32, Math.floor(levelWidth / 10)); // 10 platforms minimum
+  GEN_CHUNK_SIZE = Math.max(1, Math.round(levelWidth / GEN_SPACING_X));
+  GEN_PLAT_W = Math.max(24, Math.floor(levelWidth / GEN_CHUNK_SIZE) - 8);
+
+  // --- Sync floor width to match levelWidth ---
+  const floorX = -1 * levelWidth / 2 - 100;
+  const floorY = canvas.height - 40;
+  const floorW = levelWidth * 2;
+  const floorH = 40;
+  floor.x = floorX;
+  floor.y = floorY;
+  floor.w = floorW;
+  floor.h = floorH;
+
+
+  // --- Sync wall positions to match level edges ---
+  WALL_DISTANCE = Math.floor(levelWidth / 2) + 100; // walls just outside level edges
+  updateWalls();
+
+  // --- Generate platforms across the level ---
   platforms = [floor];
-  const initial = generatePlatforms(0, WORLD_EXPANSION_CHUNKS);
+  const initial = generatePlatforms(floorX, GEN_CHUNK_SIZE);
   platforms.push(...initial);
   enemies = []; lootDrops = []; bullets = []; enemyBullets = []; doors = [];
   worldLeftX = initial[0].x - 400;
   worldRightX = initial[initial.length-1].x + 400;
   terrainEndX = computeTerrainEnd();
-  updateWalls();
   spawnEnemiesOn(initial, true);
   spawnDoorsOn(initial, false);
+
+  if (isBossRound(state.floor)) {
+    // Pick a random enemy type for the boss
+    const bossTypes = Object.keys(ENEMY_TYPES);
+    const bossType = bossTypes[Math.floor(rng() * bossTypes.length)];
+    const bossBase = ENEMY_TYPES[bossType];
+    // Place boss in the center of the level, on the floor
+    const bossX = floor.x + floor.w / 2 - bossBase.w * 2.5;
+    const bossY = floor.y - bossBase.h * 2.5;
+    // Boss stats: 5x normal
+    const boss = new Enemy(bossX, bossY, bossType, "chase");
+    boss.w = bossBase.w * 2.5;
+    boss.h = bossBase.h * 2.5;
+    boss.maxHp *= 5;
+    boss.hp = boss.maxHp;
+    boss.damage *= 5;
+    boss.isBoss = true;
+    boss.color = "#ff00ff"; // Make boss visually distinct
+    enemies.push(boss);
+  }
+
+
   if (ENABLE_WALLS) {
     const leftDoorX = leftWallX + leftWallHalf + 8;
     const leftDoorY = canvas.height - 40 - 72 - 8;
@@ -708,17 +775,26 @@ function resetWorld(fullHeal = true){
     const rightDoorY = canvas.height - 40 - 72 - 8;
     doors.push(new Door(rightDoorX, rightDoorY));
   }
-  state.player.x = state.player.checkpoint.x = 100; state.player.y = state.player.checkpoint.y = 100; state.player.vx = state.player.vy = 0;
+
+  state.player.x = state.player.checkpoint.x = 100;
+  state.player.y = state.player.checkpoint.y = 100;
+  state.player.vx = state.player.vy = 0;
   state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
-  if(fullHeal) state.player.hp = state.player.maxHp; else state.player.hp = Math.min(state.player.hp || 0, state.player.maxHp);
-  state.player.invuln = 0; state.player.invulnSec = GAME_CONFIG.playerInvulnSec; state.player.regen = GAME_CONFIG.playerHpRegenPerSec; state.player.damageMult = 1; state.player.lives = GAME_CONFIG.playerBaseLives; /* keep state.ownedGuns persistent */ // preserve state.techs so techs persist across floors
-  // ensure an equipped gun if none
+  if(fullHeal) state.player.hp = state.player.maxHp;
+  else state.player.hp = Math.min(state.player.hp || 0, state.player.maxHp);
+  state.player.invuln = 0;
+  state.player.invulnSec = GAME_CONFIG.playerInvulnSec;
+  state.player.regen = GAME_CONFIG.playerHpRegenPerSec;
+  state.player.damageMult = 1;
+  state.player.lives = GAME_CONFIG.playerBaseLives;
   if (!state.equippedGun) {
     const owned = Object.keys(state.ownedGuns).filter(k => state.ownedGuns[k]);
     state.equippedGun = owned.length ? owned[0] : null;
   }
+
   updateHUD();
 }
+
 reseed(seed); resetWorld();
 // ---------- Attack rate handling ----------
 // enforce global cap AND per-weapon rate (effective rate = min(global, weapon.attackRate))
@@ -1488,24 +1564,20 @@ function updatePhysics(dt){
   }
 
   // expand right / left
-  const EXPAND_THRESHOLD = 400;
-  if(state.player.x + canvas.width > worldRightX - EXPAND_THRESHOLD){
-    const newStart = worldRightX + 16;
-    const newP = generatePlatforms(newStart, WORLD_EXPANSION_CHUNKS);
-    platforms.push(...newP);
-    spawnEnemiesOn(newP);
-    spawnDoorsOn(newP,false);
-    worldRightX = computeTerrainEnd();
-  }
-  if(state.player.x < worldLeftX + EXPAND_THRESHOLD){
-    const startX = worldLeftX - (WORLD_EXPANSION_CHUNKS * 96);
+const EXPAND_THRESHOLD = 400;
+if(state.player.x < worldLeftX + EXPAND_THRESHOLD){
+  const leftLimit = leftWallX + leftWallHalf;
+  // Only expand if there is space left
+  if (worldLeftX > leftLimit + 1) {
+    let startX = worldLeftX - (WORLD_EXPANSION_CHUNKS * GEN_SPACING_X);
+    if (startX < leftLimit) startX = leftLimit;
     const newP = generatePlatforms(startX, WORLD_EXPANSION_CHUNKS);
     platforms.push(...newP);
     spawnEnemiesOn(newP);
     spawnDoorsOn(newP,false);
     worldLeftX = Math.min(...platforms.map(p=>p.x));
   }
-
+}
   // enemies
   for(let i=enemies.length-1;i>=0;i--){
     const e = enemies[i]; e.onGround = false;
@@ -1624,15 +1696,21 @@ function updatePhysics(dt){
   }
 
   // doors (enter -> advance floor, give tech, reseed & reset)
-  for(let i=doors.length-1;i>=0;i--){
-    const d = doors[i];
-    if(state.player.x < d.x + d.w && state.player.x + state.player.w > d.x && state.player.y < d.y + d.h && state.player.y + state.player.h > d.y){
-      // open level-up menu instead of instant reset/heal
-      openLevelUpMenu();
-      break;
+for(let i=doors.length-1;i>=0;i--){
+  const d = doors[i];
+  if(state.player.x < d.x + d.w && state.player.x + state.player.w > d.x && state.player.y < d.y + d.h && state.player.y + state.player.h > d.y){
+    // If boss round, only allow if boss is dead
+    if (isBossRound(state.floor) && enemies.some(e => e.isBoss)) {
+      // Optionally show a message or effect here
+      // e.g. flash "Defeat the Boss!" on screen
+      continue;
     }
+    openLevelUpMenu();
+    break;
   }
+}
 
+  
   // invuln & regen
   if(state.player.invuln > 0){ state.player.invuln = Math.max(0, state.player.invuln - dt); state.player.color = (Math.floor(state.player.invuln * 6) % 2 === 0) ? "#fff" : state.player.baseColor; if(state.player.invuln === 0) state.player.color = state.player.baseColor; }
   if(state.player.regen > 0) state.player.hp = Math.min(state.player.maxHp, state.player.hp + state.player.regen * dt);
@@ -1797,16 +1875,21 @@ function applyWeaponUpgrade(choice) {
   saveGame();
 }
 
-
 function makeUpgradeOptions(){
   const stats = ['Speed','Attack','Damage','Health','Defence','Luck'];
-  // pick 3 random (without replacement)
   const choices = [];
   const pool = stats.slice();
+  const bossRound = isBossRound(state.floor);
+
   for(let i=0;i<3;i++){
     const idx = Math.floor(rng()*pool.length);
     const stat = pool.splice(idx,1)[0];
-    const rarity = weightedPick(rng);
+    let rarity = weightedPick(rng);
+    if (bossRound) {
+      // Legendary, Mythic, or Divine only
+      const bossRarities = RARITY_TABLE.filter(r => ['Legendary','Mythic','Divine'].includes(r.name));
+      rarity = bossRarities[Math.floor(rng()*bossRarities.length)];
+    }
     choices.push({ stat, rarity });
   }
 
@@ -1819,18 +1902,19 @@ function makeUpgradeOptions(){
     tries++;
     const idx = Math.floor(rng()*weaponPool.length);
     const stat = weaponPool[idx];
-    const rarity = weightedPick(rng);
-
+    let rarity = weightedPick(rng);
+    if (bossRound) {
+      const bossRarities = RARITY_TABLE.filter(r => ['Legendary','Mythic','Divine'].includes(r.name));
+      rarity = bossRarities[Math.floor(rng()*bossRarities.length)];
+    }
     // Only allow spread upgrades if Divine
     if ((stat === 'spreadCount' || stat === 'spreadAngle') && rarity.name !== 'Divine') continue;
-
     weaponChoices.push({ stat, rarity });
     weaponPool.splice(idx,1);
   }
 
   return { player: choices, weapon: weaponChoices };
 }
-
 let levelMenuOpen = false;
 let levelMenuRerolls = 1;
 let currentLevelChoices = [];
