@@ -352,7 +352,20 @@ window.addEventListener("load", () => {
   }
 });
 
-
+window.addEventListener('load', () => {
+  const debugOutput = document.getElementById('debugOutput');
+  const debugToggle = document.getElementById('toggleDebug');
+  function updateDebugVisibility() {
+    if (debugToggle && debugOutput) {
+      debugOutput.style.display = debugToggle.checked ? 'block' : 'none';
+    }
+  }
+  if (debugToggle && debugOutput) {
+    debugToggle.checked = false; // ensure off by default
+    updateDebugVisibility();
+    debugToggle.addEventListener('change', updateDebugVisibility);
+  }
+});
 
 // ---------- Particle pool ----------
 // Particle settings (can be updated from settings UI)
@@ -503,69 +516,79 @@ if (dmg > 0) {
     this.hp -= dmg; this.hitTimer = 0.2; this.color="#fff"; this.vx += (sourceVx||0)*0.6;
     spawnParticles(this.x+this.w/2,this.y+this.h/2, GAME_CONFIG.particleCountOnHit || 12); shakeScreen(1.6,0.2);
   }
-  update(dt){
-    if(this.hitTimer>0){ this.hitTimer = Math.max(0,this.hitTimer - dt); if(this.hitTimer===0) this.color=this.baseColor; }
-    if(this.behavior==="jump"){
-      if(this.jumpCooldown<=0 && this.onGround){ this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng()*1.0; }
-      if(this.jumpCooldown>0) this.jumpCooldown = Math.max(0,this.jumpCooldown - dt);
-    }
-    this.vy += GRAVITY * dt;
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
-
-    // --- NEW AI BEHAVIORS ---
-    if(this.behavior === "chase") {
-      // Move toward player horizontally
-      const px = state.player.x + state.player.w/2;
-      const ex = this.x + this.w/2;
-      const dir = px > ex ? 1 : -1;
-      this.vx = dir * ENEMY_PATROL_SPEED * this.speedMult;
-      if(this.onGround && Math.abs(px - ex) < 40 && state.player.y + state.player.h < this.y) {
-        this.vy = -JUMP_SPEED * 0.5;
-      }
-    } else if(this.behavior === "ranged") {
-      // Maintain distance: approach if too far, retreat if too close
-      const px = state.player.x + state.player.w/2;
-      const ex = this.x + this.w/2;
-      const dist = px - ex;
-      const absDist = Math.abs(dist);
-      const minDist = 180, maxDist = 260;
-      if(absDist < minDist) {
-        this.vx = -Math.sign(dist) * ENEMY_PATROL_SPEED * this.speedMult; // back away
-      } else if(absDist > maxDist) {
-        this.vx = Math.sign(dist) * ENEMY_PATROL_SPEED * this.speedMult; // approach
-      } else {
-        this.vx = 0; // hold position
-      }
-      // Shoot if within range and cooldown
-      if(this.shootCooldown<=0 && absDist < maxDist && absDist > minDist/2){
-        const dx = px - ex;
-        const dy = (state.player.y + state.player.h/2) - (this.y + this.h/2);
-        const mag = Math.hypot(dx, dy) || 1;
-        const vx = dx / mag * 6 * FPS_BASIS;
-        const vy = dy / mag * 6 * FPS_BASIS;
+update(dt){
+  if(this.hitTimer>0){ this.hitTimer = Math.max(0,this.hitTimer - dt); if(this.hitTimer===0) this.color=this.baseColor; }
+  if(this.behavior==="jump"){
+    if(this.jumpCooldown<=0 && this.onGround){ this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng()*1.0; }
+    if(this.jumpCooldown>0) this.jumpCooldown = Math.max(0,this.jumpCooldown - dt);
+    if(this.behavior==="shooter"){
+      if(this.shootCooldown<=0){
+        const vx = (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS;
+        const vy = 0;
         enemyBullets.push({ x:this.x+this.w/2, y:this.y+this.h/2, vx, vy, w:6, h:6, color:"#f80", damage:1, angle:Math.atan2(vy,vx) });
         this.shootCooldown = 2.0 + rng()*1.5;
-      }
-      if(this.shootCooldown>0) this.shootCooldown = Math.max(0,this.shootCooldown - dt);
-    } else if(this.behavior==="jump"){
-      if(this.jumpCooldown<=0 && this.onGround){ this.vy = -JUMP_SPEED * 0.66; this.jumpCooldown = 1.5 + rng()*1.0; }
-      if(this.jumpCooldown>0) this.jumpCooldown = Math.max(0,this.jumpCooldown - dt);
-      if(this.behavior==="shooter"){
-        if(this.shootCooldown<=0){
-          const vx = (state.player.x < this.x) ? -4 * FPS_BASIS : 4 * FPS_BASIS;
-          const vy = 0;
-          enemyBullets.push({ x:this.x+this.w/2, y:this.y+this.h/2, vx, vy, w:6, h:6, color:"#f80", damage:1, angle:Math.atan2(vy,vx) });
-          this.shootCooldown = 2.0 + rng()*1.5;
-        } else this.shootCooldown = Math.max(0,this.shootCooldown - dt);
-      }
-    } else if(this.behavior==="patrol"){
-      if(this.vx === 0) this.vx = (rng() < 0.5 ? -ENEMY_PATROL_SPEED : ENEMY_PATROL_SPEED) * this.speedMult;
+      } else this.shootCooldown = Math.max(0,this.shootCooldown - dt);
     }
-    this.vy += GRAVITY * dt;
-    this.x += this.vx * dt;
-    this.y += this.vy * dt;
+  } else if(this.behavior==="patrol"){
+    if(this.vx === 0) this.vx = (rng() < 0.5 ? -ENEMY_PATROL_SPEED : ENEMY_PATROL_SPEED) * this.speedMult;
   }
+  this.vy += GRAVITY * dt;
+  this.x += this.vx * dt;
+  this.y += this.vy * dt;
+
+  // --- Enemy wall collision and turn-around ---
+  if (ENABLE_WALLS) {
+    const leftWallRightX = leftWallX + leftWallHalf;
+    const rightWallLeftX = rightWallX - rightWallHalf;
+    // If enemy hits left wall, clamp and turn right
+    if (this.x < leftWallRightX) {
+      this.x = leftWallRightX;
+      if (this.vx < 0) this.vx = Math.abs(this.vx);
+    }
+    // If enemy hits right wall, clamp and turn left
+    if (this.x + this.w > rightWallLeftX) {
+      this.x = rightWallLeftX - this.w;
+      if (this.vx > 0) this.vx = -Math.abs(this.vx);
+    }
+  }
+
+  // --- NEW AI BEHAVIORS ---
+  if(this.behavior === "chase") {
+    // Move toward player horizontally
+    const px = state.player.x + state.player.w/2;
+    const ex = this.x + this.w/2;
+    const dir = px > ex ? 1 : -1;
+    this.vx = dir * ENEMY_PATROL_SPEED * this.speedMult;
+    if(this.onGround && Math.abs(px - ex) < 40 && state.player.y + state.player.h < this.y) {
+      this.vy = -JUMP_SPEED * 0.5;
+    }
+  } else if(this.behavior === "ranged") {
+    // Maintain distance: approach if too far, retreat if too close
+    const px = state.player.x + state.player.w/2;
+    const ex = this.x + this.w/2;
+    const dist = px - ex;
+    const absDist = Math.abs(dist);
+    const minDist = 180, maxDist = 260;
+    if(absDist < minDist) {
+      this.vx = -Math.sign(dist) * ENEMY_PATROL_SPEED * this.speedMult; // back away
+    } else if(absDist > maxDist) {
+      this.vx = Math.sign(dist) * ENEMY_PATROL_SPEED * this.speedMult; // approach
+    } else {
+      this.vx = 0; // hold position
+    }
+    // Shoot if within range and cooldown
+    if(this.shootCooldown<=0 && absDist < maxDist && absDist > minDist/2){
+      const dx = px - ex;
+      const dy = (state.player.y + state.player.h/2) - (this.y + this.h/2);
+      const mag = Math.hypot(dx, dy) || 1;
+      const vx = dx / mag * 6 * FPS_BASIS;
+      const vy = dy / mag * 6 * FPS_BASIS;
+      enemyBullets.push({ x:this.x+this.w/2, y:this.y+this.h/2, vx, vy, w:6, h:6, color:"#f80", damage:1, angle:Math.atan2(vy,vx) });
+      this.shootCooldown = 2.0 + rng()*1.5;
+    }
+    if(this.shootCooldown>0) this.shootCooldown = Math.max(0,this.shootCooldown - dt);
+  }
+}
 }
 
 class Loot { constructor(x,y,type){ this.x=x;this.y=y;this.w=20;this.h=20;this.type=type;this.color = type==="tech" ? "#0ff" : "#f0f"; } draw(){ ctx.fillStyle=this.color; ctx.fillRect(this.x-cameraOffsetX,this.y,this.w,this.h) } }
@@ -716,9 +739,14 @@ function resetWorld(fullHeal = true){
 
   // --- Sync platform generation to fill levelWidth ---
   // Use GEN_SPACING_X and GEN_CHUNK_SIZE to fill levelWidth
-  GEN_SPACING_X = Math.max(32, Math.floor(levelWidth / 10)); // 10 platforms minimum
-  GEN_CHUNK_SIZE = Math.max(1, Math.round(levelWidth / GEN_SPACING_X));
-  GEN_PLAT_W = Math.max(24, Math.floor(levelWidth / GEN_CHUNK_SIZE) - 8);
+// --- Platform generation: more platforms per level, constant width ---
+const BASE_PLATFORM_COUNT = 10; // platforms at level 1
+const PLATFORM_COUNT_SCALE = 2; // extra platforms per level
+const BASE_PLATFORM_WIDTH = 88; // constant platform width
+
+GEN_CHUNK_SIZE = BASE_PLATFORM_COUNT + PLATFORM_COUNT_SCALE * (floorNum - 1);
+GEN_PLAT_W = BASE_PLATFORM_WIDTH;
+GEN_SPACING_X = Math.max(GEN_PLAT_W + 8, Math.floor(levelWidth / GEN_CHUNK_SIZE));
 
   // --- Sync floor width to match levelWidth ---
   const floorX = -1 * levelWidth / 2 - 100;
@@ -767,14 +795,12 @@ function resetWorld(fullHeal = true){
   }
 
 
-  if (ENABLE_WALLS) {
-    const leftDoorX = leftWallX + leftWallHalf + 8;
-    const leftDoorY = canvas.height - 40 - 72 - 8;
-    doors.push(new Door(leftDoorX, leftDoorY));
+if (ENABLE_WALLS) {
+    // Only spawn the right wall door
     const rightDoorX = rightWallX - rightWallHalf - 48 - 8;
     const rightDoorY = canvas.height - 40 - 72 - 8;
     doors.push(new Door(rightDoorX, rightDoorY));
-  }
+}
 
   state.player.x = state.player.checkpoint.x = 100;
   state.player.y = state.player.checkpoint.y = 100;

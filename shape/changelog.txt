@@ -101,3 +101,4 @@ v1.5.2 - November 12, 2025
 v1.5.3 - November 12, 2025
 - Added Bosses to the game (level will guarantee a high tier upgrade)
 - Bosses currently have 5x stats of regular enemies.
+- tweaked level generation and spawn mechanics.
