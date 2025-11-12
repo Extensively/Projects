@@ -105,3 +105,7 @@ v1.5.3 - November 12, 2025
 v1.5.4 - November 12, 2025
 - tweaked level generation and spawn mechanics.
 - made enemy stat scaling compund
+
+v1.5.5 - November 13, 2025
+- nerfed enemy stat scaling
+- added a lose screen

@@ -105,10 +105,12 @@ const ENEMY_PATROL_SPEED = 1.5 * FPS_BASIS;
 const BULLET_SPEED_SCALE = FPS_BASIS;
 const shake = { intensity: 0, time: 0 };
 
-let ENEMY_HP_SCALE = 25;
+let ENEMY_HP_SCALE = 10;
 let ENEMY_SPEED_SCALE = 5;
 let ENEMY_DMG_SCALE = 10;
 
+
+let gameOver = false;
 // ---------- DOM / Settings ----------
 const canvas = document.getElementById("gameCanvas");
 const ctx = canvas.getContext("2d");
@@ -275,7 +277,6 @@ const TECH_CATALOG = {
   damage_amp: { id:"damage_amp", name:"Damage Amp", description:"Increase damage", apply(s){ s.player.damageMult *= 1.5 }, revert(s){ s.player.damageMult /= 1.5 } },
   extra_life: { id:"extra_life", name:"Extra Life", description:"Gain one life", apply(s){ s.player.lives += 1 }, revert(s){ s.player.lives = Math.max(0, s.player.lives-1) } },
   double_jump: { id:"double_jump", name:"Double Jump", description:"Allows an extra jump in mid-air", apply(s){ s.player.jumpCount += 1 }, revert(s){ s.player.jumpCount = Math.max(0, s.player.jumpCount-1) } },
-  dash: { id:"dash", name:"Dash", description:"Allows a quick dash in the direction you're facing", apply(s){ s.player.dash = true }, revert(s){ s.player.dash = false } }
 };
 
 // ---------- State ----------
@@ -655,7 +656,30 @@ function damagePlayer(amount, sourceVx=0){
 }
 function handlePlayerDeath(){
   state.player.lives = Math.max(0, state.player.lives - 1);
-  if(state.player.lives <= 0){ state.player.lives = GAME_CONFIG.playerBaseLives; reseed(Math.floor(Math.random()*1e9)); }
+  if(state.player.lives <= 0){
+    // Game Over!
+    gameOver = true;
+
+    // Reset player stats to defaults
+    GAME_CONFIG.playerDamageMult = 1.0;
+    GAME_CONFIG.playerDefencePct = 0;
+    GAME_CONFIG.playerSpeedMult = 1.0;
+    GAME_CONFIG.playerLuckPct = 0;
+    GAME_CONFIG.playerAttackMult = 0.5;
+    state.techs = {};
+    state.rerollBank = 0;
+
+    // Reset gun stats to defaults
+    for(const k of Object.keys(WEAPON_CONFIG)){
+      if(WEAPON_DEFAULTS[k]) Object.assign(WEAPON_CONFIG[k], WEAPON_DEFAULTS[k]);
+    }
+    // Optionally reset owned/equipped guns:
+    state.ownedGuns = { "basic": true };
+    state.equippedGun = "basic";
+
+    // Show Game Over overlay (handled in render)
+    return;
+  }
   state.player.hp = state.player.maxHp; state.player.x = state.player.checkpoint.x; state.player.y = state.player.checkpoint.y; state.player.vx = 0; state.player.vy = 0; state.player.invuln = GAME_CONFIG.respawnInvulnSec; updateHUD();
 }
 
@@ -1641,7 +1665,7 @@ if(state.player.x < worldLeftX + EXPAND_THRESHOLD){
   // compute effective drop chances using same nonlinear luck scaling as the UI
   const luck = Math.max(0, Math.min(100, GAME_CONFIG.playerLuckPct || 0));
   const luckFactor = Math.sqrt(luck) / 100.0; // 0..0.1 for 100 luck -> 0.1
-  const effTech = Math.min(1, DROP_RATE_TECH + luckFactor * 1.5);
+  const effTech = Math.min(1, DROP_RATE_TECH + luckFactor * 0.5);
   if (rng() < effTech) lootDrops.push(new Loot(e.x, e.y, "tech"));
         // gun drop: prefer unowned guns
         // gun drop: choose weapon by weight, prefer unowned weapons
@@ -1808,6 +1832,27 @@ function render(){
 
 
   if (!gamePaused) handleAutoFire();
+
+
+    // ...existing render code...
+
+  // Draw Game Over overlay
+  if (gameOver) {
+    ctx.save();
+    ctx.globalAlpha = 0.92;
+    ctx.fillStyle = "#000";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.globalAlpha = 1.0;
+    ctx.fillStyle = "#fff";
+    ctx.font = "bold 48px Arial";
+    ctx.textAlign = "center";
+    ctx.fillText("GAME OVER", canvas.width/2, canvas.height/2 - 40);
+    ctx.font = "28px Arial";
+    ctx.fillText("You reached Floor " + (state.floor || 1), canvas.width/2, canvas.height/2 + 10);
+    ctx.font = "20px Arial";
+    ctx.fillText("Press any key or click to restart", canvas.width/2, canvas.height/2 + 60);
+    ctx.restore();
+  }
 }
 
 // ---------- Level-up / Upgrade Menu ----------
@@ -2357,6 +2402,30 @@ function updateAndDrawDamageNumbers(dt) {
 
     if (dn.alpha <= 0) damageNumbers.splice(i, 1);
   }
+}
+window.addEventListener('keydown', tryRestartGameOver);
+window.addEventListener('mousedown', tryRestartGameOver);
+
+function tryRestartGameOver() {
+  if (!gameOver) return;
+  gameOver = false;
+  state.floor = 1;
+  state.player.lives = GAME_CONFIG.playerBaseLives;
+  state.player.hp = state.player.maxHp = GAME_CONFIG.playerBaseMaxHp;
+  state.player.x = state.player.checkpoint.x = 100;
+  state.player.y = state.player.checkpoint.y = 100;
+  state.player.vx = state.player.vy = 0;
+  state.techs = {};
+  state.rerollBank = 0;
+  // Reset gun stats and ownership
+  for(const k of Object.keys(WEAPON_CONFIG)){
+    if(WEAPON_DEFAULTS[k]) Object.assign(WEAPON_CONFIG[k], WEAPON_DEFAULTS[k]);
+  }
+  state.ownedGuns = { "basic": true };
+  state.equippedGun = "basic";
+  updateHUD();
+  reseed(Math.floor(Math.random()*1e9));
+  resetWorld(true);
 }
 
 
