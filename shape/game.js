@@ -460,9 +460,9 @@ class Enemy {
 
     // --- Level scaling ---
     const floor = (state.floor || 1);
-    const hpScale = 1 + (floor - 1) * (ENEMY_HP_SCALE / 100);
-    const speedScale = 1 + (floor - 1) * (ENEMY_SPEED_SCALE / 100);
-    const dmgScale = 1 + (floor - 1) * (ENEMY_DMG_SCALE / 100);
+    const hpScale = Math.pow(1 + ENEMY_HP_SCALE / 100, floor - 1);
+    const speedScale = Math.pow(1 + ENEMY_SPEED_SCALE / 100, floor - 1);
+    const dmgScale = Math.pow(1 + ENEMY_DMG_SCALE / 100, floor - 1);
 
     this.maxHp = Math.round(type.maxHp * hpScale);
     this.hp = this.maxHp;
