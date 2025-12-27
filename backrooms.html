@@ -180,7 +180,8 @@
     angle: 0,
     fov: Math.PI / 3,
     moveSpeed: 3,
-    rotSpeed: 2.5
+    rotSpeed: 2.5,
+    lookY: 0 // vertical look offset
   };
 
   // place player somewhere empty
@@ -221,9 +222,84 @@
 
   document.addEventListener('mousemove', e => {
     if (!pointerLocked) return;
+
     const sensitivity = 0.0025;
+
+    // Horizontal rotation
     player.angle += e.movementX * sensitivity;
+
+    // Normalize to [0, 2π) to avoid flips/wrap issues
+    if (player.angle < 0) player.angle += Math.PI * 2;
+    if (player.angle >= Math.PI * 2) player.angle -= Math.PI * 2;
+
+    // Vertical look (shifts the horizon)
+    player.lookY -= e.movementY * 0.5;
+    player.lookY = Math.max(-200, Math.min(200, player.lookY));
   });
+
+  // ==========================
+  // Entity (chasing monster)
+  // ==========================
+  const entity = {
+    x: 10,
+    y: 10,
+    speed: 1.5,
+    state: "wander", // wander or chase
+    angle: 0,
+    wanderTimer: 0
+  };
+
+  // place entity somewhere empty and not too close to player
+  (function placeEntity() {
+    for (let tries = 0; tries < 1000; tries++) {
+      const ex = 1 + Math.floor(Math.random() * (MAP_W - 2));
+      const ey = 1 + Math.floor(Math.random() * (MAP_H - 2));
+      if (map[ey][ex] === CELL_EMPTY) {
+        const dx = ex + 0.5 - player.x;
+        const dy = ey + 0.5 - player.y;
+        if (Math.hypot(dx, dy) > 6) {
+          entity.x = ex + 0.5;
+          entity.y = ey + 0.5;
+          return;
+        }
+      }
+    }
+  })();
+
+  function updateEntity(dt) {
+    const dx = player.x - entity.x;
+    const dy = player.y - entity.y;
+    const dist = Math.hypot(dx, dy);
+
+    // If close enough, chase; if far, wander
+    if (dist < 6) {
+      entity.state = "chase";
+    } else if (dist > 10) {
+      entity.state = "wander";
+    }
+
+    if (entity.state === "chase") {
+      entity.angle = Math.atan2(dy, dx);
+    } else {
+      // wandering slowly changes direction
+      entity.wanderTimer -= dt;
+      if (entity.wanderTimer <= 0) {
+        entity.angle = Math.random() * Math.PI * 2;
+        entity.wanderTimer = 2 + Math.random() * 3;
+      }
+    }
+
+    const ex = entity.x + Math.cos(entity.angle) * entity.speed * dt;
+    const ey = entity.y + Math.sin(entity.angle) * entity.speed * dt;
+
+    if (!isWall(ex, entity.y)) entity.x = ex;
+    if (!isWall(entity.x, ey)) entity.y = ey;
+
+    // If entity touches player → heavy sanity damage
+    if (dist < 0.6) {
+      sanity -= 25 * dt;
+    }
+  }
 
   // ==========================
   // Sanity and atmosphere
@@ -296,7 +372,7 @@
   }
 
   // ==========================
-  // Raycasting render
+  // Raycasting
   // ==========================
   function castRay(angle) {
     const sin = Math.sin(angle);
@@ -306,7 +382,6 @@
 
     let hit = false;
     let wallType = 0;
-
     let hitX = 0;
     let hitY = 0;
 
@@ -325,20 +400,74 @@
     return { dist, hit, wallType, hitX, hitY };
   }
 
+  // ==========================
+  // Minimap
+  // ==========================
+  function drawMinimap() {
+    const size = 150;
+    const cell = size / MAP_W;
+    const offsetX = canvas.width - size - 10;
+    const offsetY = 10;
+
+    ctx.save();
+    ctx.globalAlpha = 0.9;
+    ctx.fillStyle = "rgba(0,0,0,0.6)";
+    ctx.fillRect(offsetX, offsetY, size, size);
+
+    // Maze
+    for (let y = 0; y < MAP_H; y++) {
+      for (let x = 0; x < MAP_W; x++) {
+        if (map[y][x] === CELL_WALL) {
+          ctx.fillStyle = "#333";
+        } else {
+          ctx.fillStyle = "#ccc";
+        }
+        ctx.fillRect(offsetX + x * cell, offsetY + y * cell, cell, cell);
+      }
+    }
+
+    // Player
+    ctx.fillStyle = "blue";
+    ctx.beginPath();
+    ctx.arc(offsetX + player.x * cell, offsetY + player.y * cell, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Player direction
+    ctx.strokeStyle = "blue";
+    ctx.beginPath();
+    ctx.moveTo(offsetX + player.x * cell, offsetY + player.y * cell);
+    ctx.lineTo(
+      offsetX + (player.x + Math.cos(player.angle) * 0.8) * cell,
+      offsetY + (player.y + Math.sin(player.angle) * 0.8) * cell
+    );
+    ctx.stroke();
+
+    // Entity
+    ctx.fillStyle = "red";
+    ctx.beginPath();
+    ctx.arc(offsetX + entity.x * cell, offsetY + entity.y * cell, 4, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  // ==========================
+  // Rendering
+  // ==========================
   function renderScene(dt) {
     const w = canvas.width;
     const h = canvas.height;
 
     ctx.clearRect(0, 0, w, h);
 
-    // sky / ceiling
+    // background
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, w, h);
 
     const numRays = w;
-    const halfH = h / 2;
+    const halfH = h / 2 + player.lookY;
 
-    // flicker base
+    // flicker
     const flicker = 0.15 * Math.sin(time * 6 + Math.cos(time * 2));
     const baseLight = 0.8;
     let globalBrightness = baseLight + flicker;
@@ -362,9 +491,9 @@
       let shade = 1 / (1 + correctedDist * 0.3);
       shade *= globalBrightness;
 
-      // slight yellow variations
-      const noise = (Math.sin(ray.hitX * 12.9898 + ray.hitY * 78.233) * 43758.5453) % 1;
-      const n = Math.abs(noise);
+      // slight yellow variations using simple hash-noise
+      const noise = Math.sin(ray.hitX * 12.9898 + ray.hitY * 78.233) * 43758.5453;
+      const n = Math.abs(noise % 1);
 
       const r = Math.floor(240 * shade * (0.95 + n * 0.1));
       const g = Math.floor(235 * shade * (0.9 + n * 0.2));
@@ -376,7 +505,7 @@
       ctx.lineTo(x, endY);
       ctx.stroke();
 
-      // floor and ceiling fake gradient
+      // floor glow
       ctx.strokeStyle = `rgba(200,190,140,${0.12 * shade})`;
       ctx.beginPath();
       ctx.moveTo(x, endY);
@@ -421,7 +550,10 @@
       ctx.fillText("Reload the page for a new maze.", w / 2, h / 2 + 20);
     }
 
-    // update sanity after render using globalBrightness
+    // minimap
+    drawMinimap();
+
+    // update sanity after render
     updateSanity(globalBrightness, dt);
   }
 
@@ -491,6 +623,9 @@
         lastStepTime = nowMs;
       }
     }
+
+    // entity update
+    updateEntity(dt);
 
     // random creepy text
     if (Math.random() < dt * 0.05) {
