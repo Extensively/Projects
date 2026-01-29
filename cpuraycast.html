@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>CPU RTX</title>
+    <style>
+        body { margin: 0; background: #111; color: #eee; font-family: 'Segoe UI', sans-serif; overflow: hidden; display: flex; height: 100vh; }
+        
+        /* Main Viewport */
+        #canvas-container { flex-grow: 1; position: relative; background: #000; display:flex; align-items:center; justify-content:center; }
+        canvas { box-shadow: 0 0 20px rgba(0,0,0,0.5); image-rendering: pixelated; max-width: 100%; max-height: 100%; display:block; }
+        
+        /* UI Panel */
+        #ui { width: 320px; background: #222; padding: 20px; border-left: 1px solid #444; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; box-sizing: border-box; }
+        h2 { margin: 0 0 5px 0; font-size: 1.1rem; border-bottom: 1px solid #555; padding-bottom: 5px; color:#fff; }
+        .control-group { background: #333; padding: 10px; border-radius: 6px; }
+        label { display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; margin-bottom: 8px; color:#ccc; }
+        input[type=range] { width: 55%; cursor: pointer; }
+        input[type=color] { border: none; width: 40px; height: 25px; cursor: pointer; background:none; }
+        select { width: 100%; padding: 6px; background: #444; color: white; border: 1px solid #555; border-radius: 4px; cursor: pointer; }
+        
+        .val { font-family: monospace; color: #4caf50; font-size: 0.8rem; }
+        button { background: #4caf50; border: none; color: white; padding: 10px; width: 100%; cursor: pointer; border-radius: 4px; font-weight: bold; margin-top:5px; }
+        button:hover { background: #45a049; }
+        
+        #stats { position: absolute; top: 15px; left: 15px; pointer-events: none; font-family: monospace; font-weight:bold; color:#fff; text-shadow: 1px 1px 0 #000; background:rgba(0,0,0,0.5); padding:5px; border-radius:4px;}
+        .instruction { font-size: 0.75rem; color: #888; margin-top: 10px; line-height: 1.4; }
+    </style>
+</head>
+<body>
+
+<div id="canvas-container">
+    <div id="stats">Initializing...</div>
+    <canvas id="canvas"></canvas>
+</div>
+
+<div id="ui">
+    <h2>Render Settings</h2>
+    <div class="control-group">
+        <label>Resolution <span id="resVal" class="val">0.5</span></label>
+        <input type="range" id="resolution" min="0.1" max="1" step="0.1" value="0.5">
+        
+        <label>Light Bounces <span id="depthVal" class="val">3</span></label>
+        <input type="range" id="bounces" min="1" max="8" step="1" value="3">
+        
+        <button id="resetBtn">Reset Noise</button>
+    </div>
+
+    <h2>Object Material</h2>
+    <div class="control-group">
+        <label style="display:block; margin-bottom:5px;">Select Object:</label>
+        <select id="objSelect"></select>
+    </div>
+
+    <div class="control-group" id="materialControls">
+        <label>Base Color <input type="color" id="matColor"></label>
+        
+        <label>Emission (Light) <span id="emisVal" class="val">0.0</span></label>
+        <input type="range" id="matEmission" min="0" max="10" step="0.1">
+
+        <label>Roughness <span id="roughVal" class="val">0.5</span></label>
+        <input type="range" id="matRoughness" min="0" max="1" step="0.05">
+
+        <label>Metallic <span id="metalVal" class="val">0.0</span></label>
+        <input type="range" id="matMetal" min="0" max="1" step="0.05">
+    </div>
+    
+    <div class="instruction">
+        <b>Navigation:</b><br>
+        • Click canvas to focus.<br>
+        • <b>WASD</b> to Move.<br>
+        • <b>Mouse</b> to Look.<br>
+        • <b>E/Q</b> to Fly Up/Down.<br>
+        • <b>ESC</b> to unlock cursor.
+    </div>
+</div>
+
+<script>
+/* * ROBUST PATH TRACER ENGINE V4 
+ * Supports: Spheres, Planes, Boxes, Triangles (Tetrahedrons)
+ */
+
+// --- Vector Math ---
+const V = {
+    add: (a,b) => [a[0]+b[0], a[1]+b[1], a[2]+b[2]],
+    sub: (a,b) => [a[0]-b[0], a[1]-b[1], a[2]-b[2]],
+    mul: (a,b) => [a[0]*b[0], a[1]*b[1], a[2]*b[2]],
+    scale: (v,s) => [v[0]*s, v[1]*s, v[2]*s],
+    dot: (a,b) => a[0]*b[0] + a[1]*b[1] + a[2]*b[2],
+    cross: (a,b) => [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]],
+    len: (v) => Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]),
+    norm: (v) => { let l = Math.sqrt(v[0]*v[0] + v[1]*v[1] + v[2]*v[2]); return l ? [v[0]/l, v[1]/l, v[2]/l] : [0,0,0]; },
+    randomHemisphere: (n) => {
+        let u = Math.random(), v = Math.random();
+        let theta = 2 * Math.PI * u;
+        let phi = Math.acos(1 - 2 * v);
+        let x = Math.sin(phi) * Math.cos(theta);
+        let y = Math.sin(phi) * Math.sin(theta);
+        let z = Math.cos(phi);
+        let r = [x,y,z];
+        if (V.dot(r, n) < 0) r = V.scale(r, -1);
+        return V.norm(r);
+    }
+};
+
+// --- Scene Objects Management ---
+// We store objects in a flat list for the ray tracer.
+// Each object has a `mat` object embedded in it for easy UI editing.
+
+const Objects = [];
+
+// Helper Constructors
+function createMat(r,g,b, emit=0, rough=0.5, metal=0) {
+    return { color: [r,g,b], emission: emit, roughness: rough, metal: metal };
+}
+
+function addSphere(name, p, r, mat) { 
+    Objects.push({ name, type: 'sphere', p, r, mat }); 
+}
+function addPlane(name, p, n, w, h, mat) { 
+    Objects.push({ name, type: 'plane', p, n, w, h, mat }); 
+}
+function addBox(name, center, size, mat) { 
+    Objects.push({ name, type: 'box', min: V.sub(center, size), max: V.add(center, size), mat }); 
+}
+function addTetrahedron(name, center, size, mat) {
+    // Calculate vertices for a tetrahedron
+    // Top, and 3 base points
+    const s = size;
+    const v0 = V.add(center, [0, s, 0]); // Top
+    const v1 = V.add(center, [-s, -s, s]);
+    const v2 = V.add(center, [s, -s, s]);
+    const v3 = V.add(center, [0, -s, -s]);
+    
+    // Add 4 triangles sharing the same material object
+    Objects.push({ name: name+" (Face 1)", type: 'tri', v0:v0, v1:v1, v2:v2, mat, parentName: name });
+    Objects.push({ name: name+" (Face 2)", type: 'tri', v0:v0, v1:v2, v2:v3, mat, parentName: name });
+    Objects.push({ name: name+" (Face 3)", type: 'tri', v0:v0, v1:v3, v2:v1, mat, parentName: name });
+    Objects.push({ name: name+" (Face 4)", type: 'tri', v0:v1, v1:v3, v2:v2, mat, parentName: name });
+}
+
+// --- Build Scene (Cornell Box Style) ---
+// Room Materials
+const mWhite = createMat(0.8, 0.8, 0.8);
+const mRed   = createMat(0.8, 0.1, 0.1);
+const mGreen = createMat(0.1, 0.8, 0.1);
+const mLight = createMat(1, 1, 1, 8.0); // Bright light
+
+// Room Geometry
+addPlane("Floor",      [0, -2, 0], [0, 1, 0],  4, 4, mWhite);
+addPlane("Ceiling",    [0, 2, 0],  [0, -1, 0], 4, 4, mWhite);
+addPlane("Back Wall",  [0, 0, 2],  [0, 0, -1], 4, 4, mWhite);
+addPlane("Left Wall",  [-2, 0, 0], [1, 0, 0],  4, 4, mRed);
+addPlane("Right Wall", [2, 0, 0],  [-1, 0, 0], 4, 4, mGreen);
+addPlane("Ceiling Light", [0, 1.99, 0], [0, -1, 0], 1.5, 1.5, mLight);
+
+// Objects
+const mGold  = createMat(1.0, 0.8, 0.2, 0, 0.2, 1.0); // Gold
+const mGlass = createMat(0.2, 0.2, 0.9, 0, 0.1, 0.0); // Shiny Blue
+const mMatte = createMat(0.9, 0.1, 0.9, 0, 0.9, 0.0); // Pink Matte
+
+addBox("Gold Box", [1.0, -1.0, 0.5], [0.6, 1.0, 0.6], mGold);
+addSphere("Blue Sphere", [-1.0, -1.2, 0.8], 0.8, mGlass);
+addTetrahedron("Pink Pyramid", [-0.5, -1.2, -0.5], 0.8, mMatte);
+
+
+// --- Ray Tracing Core ---
+
+function intersect(ro, rd) {
+    let tMin = Infinity;
+    let hit = null;
+
+    for (let i = 0; i < Objects.length; i++) {
+        const obj = Objects[i];
+        let t = null, n = null;
+
+        if (obj.type === 'sphere') {
+            const oc = V.sub(ro, obj.p);
+            const b = V.dot(oc, rd);
+            const c = V.dot(oc, oc) - obj.r*obj.r;
+            const h = b*b - c;
+            if (h > 0) {
+                const tmp = -b - Math.sqrt(h);
+                if (tmp > 0.001 && tmp < tMin) { t = tmp; n = V.scale(V.sub(V.add(ro, V.scale(rd,t)), obj.p), 1/obj.r); }
+            }
+        } 
+        else if (obj.type === 'plane') {
+            const denom = V.dot(rd, obj.n);
+            if (Math.abs(denom) > 1e-6) {
+                const tmp = V.dot(V.sub(obj.p, ro), obj.n) / denom;
+                if (tmp > 0.001 && tmp < tMin) {
+                    const p = V.add(ro, V.scale(rd, tmp));
+                    const d = V.sub(p, obj.p);
+                    // Check bounds (Rectangular)
+                    let up = Math.abs(obj.n[1]) > 0.9 ? [1,0,0] : [0,1,0];
+                    let right = V.norm(V.cross(obj.n, up));
+                    let fwd = V.norm(V.cross(right, obj.n));
+                    if (Math.abs(V.dot(d, right)) <= obj.w/2 && Math.abs(V.dot(d, fwd)) <= obj.h/2) {
+                        t = tmp; n = obj.n;
+                    }
+                }
+            }
+        }
+        else if (obj.type === 'box') {
+            let t1 = (obj.min[0] - ro[0])/rd[0], t2 = (obj.max[0] - ro[0])/rd[0];
+            let tMinX = Math.min(t1, t2), tMaxX = Math.max(t1, t2);
+            t1 = (obj.min[1] - ro[1])/rd[1]; t2 = (obj.max[1] - ro[1])/rd[1];
+            let tMinY = Math.min(t1, t2), tMaxY = Math.max(t1, t2);
+            t1 = (obj.min[2] - ro[2])/rd[2]; t2 = (obj.max[2] - ro[2])/rd[2];
+            let tMinZ = Math.min(t1, t2), tMaxZ = Math.max(t1, t2);
+            let tEnter = Math.max(Math.max(tMinX, tMinY), tMinZ);
+            let tExit = Math.min(Math.min(tMaxX, tMaxY), tMaxZ);
+
+            if (tExit > tEnter && tExit > 0 && tEnter < tMin && tEnter > 0.001) {
+                t = tEnter;
+                const p = V.add(ro, V.scale(rd, t));
+                const eps = 0.001;
+                if (Math.abs(p[0]-obj.min[0])<eps) n=[-1,0,0];
+                else if (Math.abs(p[0]-obj.max[0])<eps) n=[1,0,0];
+                else if (Math.abs(p[1]-obj.min[1])<eps) n=[0,-1,0];
+                else if (Math.abs(p[1]-obj.max[1])<eps) n=[0,1,0];
+                else if (Math.abs(p[2]-obj.min[2])<eps) n=[0,0,-1];
+                else n=[0,0,1];
+            }
+        }
+        else if (obj.type === 'tri') {
+            const e1 = V.sub(obj.v1, obj.v0);
+            const e2 = V.sub(obj.v2, obj.v0);
+            const h = V.cross(rd, e2);
+            const a = V.dot(e1, h);
+            if (a > -1e-6 && a < 1e-6) continue;
+            const f = 1/a;
+            const s = V.sub(ro, obj.v0);
+            const u = f * V.dot(s, h);
+            if (u < 0 || u > 1) continue;
+            const q = V.cross(s, e1);
+            const v = f * V.dot(rd, q);
+            if (v < 0 || u + v > 1) continue;
+            const tmp = f * V.dot(e2, q);
+            if (tmp > 0.001 && tmp < tMin) {
+                t = tmp;
+                n = V.norm(V.cross(e1, e2));
+                // Double sided
+                if(V.dot(rd, n) > 0) n = V.scale(n, -1);
+            }
+        }
+
+        if (t !== null) { tMin = t; hit = { t, p: V.add(ro, V.scale(rd, t)), n, mat: obj.mat }; }
+    }
+    return hit;
+}
+
+function trace(ro, rd, depth) {
+    let rad = [0,0,0];
+    let th = [1,1,1];
+    
+    for(let i=0; i<depth; i++) {
+        const hit = intersect(ro, rd);
+        if(!hit) {
+            // Dark gray background
+            rad = V.add(rad, V.mul(th, [0.05, 0.05, 0.05]));
+            break;
+        }
+
+        const emitted = V.scale(hit.mat.color, hit.mat.emission);
+        rad = V.add(rad, V.mul(th, emitted));
+        
+        // Russian Roulette
+        let maxRefl = Math.max(hit.mat.color[0], Math.max(hit.mat.color[1], hit.mat.color[2]));
+        if (Math.random() > maxRefl && i > 1) break;
+        th = V.scale(V.mul(th, hit.mat.color), 1/Math.max(0.01, maxRefl));
+
+        // Bounce
+        let pureBounce = V.randomHemisphere(hit.n);
+        let specBounce = V.sub(rd, V.scale(hit.n, 2*V.dot(rd, hit.n)));
+        
+        // Importance sampling approximation (Linear Blend)
+        let bounce = pureBounce;
+        if(Math.random() < hit.mat.metal) {
+            // Metal bounce
+            bounce = V.norm(V.add(specBounce, V.scale(V.randomHemisphere(hit.n), hit.mat.roughness)));
+        } else {
+            // Diffuse bounce, but roughness can add specular sheen logic (skipped for simplicity)
+            bounce = pureBounce; 
+        }
+        
+        if(V.dot(bounce, hit.n) < 0) bounce = V.scale(bounce, -1); // Check hemisphere
+
+        ro = V.add(hit.p, V.scale(hit.n, 0.001));
+        rd = bounce;
+    }
+    return rad;
+}
+
+// --- Render Loop ---
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+let width, height, buffer, sampleCount;
+
+let camPos = [0, 0, -4.5];
+let camYaw = 0, camPitch = 0;
+let settings = { scale: 0.5, bounces: 3 };
+
+function resize() {
+    const p = canvas.parentElement;
+    width = Math.floor(p.clientWidth * settings.scale);
+    height = Math.floor(p.clientHeight * settings.scale);
+    canvas.width = width;
+    canvas.height = height;
+    reset();
+}
+
+function reset() {
+    buffer = new Float32Array(width * height * 3);
+    sampleCount = 0;
+}
+
+function render() {
+    if(!width) return;
+    
+    // Process input
+    let moved = false;
+    let speed = 0.15;
+    let fwd = [Math.sin(camYaw), 0, Math.cos(camYaw)];
+    let right = [Math.cos(camYaw), 0, -Math.sin(camYaw)];
+    if(keys['w']) { camPos = V.add(camPos, V.scale(fwd, speed)); moved=true; }
+    if(keys['s']) { camPos = V.sub(camPos, V.scale(fwd, speed)); moved=true; }
+    if(keys['a']) { camPos = V.sub(camPos, V.scale(right, speed)); moved=true; }
+    if(keys['d']) { camPos = V.add(camPos, V.scale(right, speed)); moved=true; }
+    if(keys['e']) { camPos[1] += speed; moved=true; }
+    if(keys['q']) { camPos[1] -= speed; moved=true; }
+    if(moved) reset();
+
+    // Render pass
+    const idata = ctx.createImageData(width, height);
+    const data = idata.data;
+    const aspect = width / height;
+
+    for(let y=0; y<height; y++) {
+        for(let x=0; x<width; x++) {
+            // Jitter for Anti-aliasing
+            let u = (x + Math.random()) / width * 2 - 1;
+            let v = -( (y + Math.random()) / height * 2 - 1 );
+            
+            let rx = u * aspect * 0.55; 
+            let ry = v * 0.55;
+            let rz = 1.0;
+            
+            let ry2 = ry * Math.cos(camPitch) - rz * Math.sin(camPitch);
+            let rz2 = ry * Math.sin(camPitch) + rz * Math.cos(camPitch);
+            let rx3 = rx * Math.cos(camYaw) + rz2 * Math.sin(camYaw);
+            let rz3 = -rx * Math.sin(camYaw) + rz2 * Math.cos(camYaw);
+            
+            let rd = V.norm([rx3, ry2, rz3]);
+            let col = trace(camPos, rd, settings.bounces);
+            
+            let idx = (y * width + x) * 3;
+            buffer[idx] += col[0];
+            buffer[idx+1] += col[1];
+            buffer[idx+2] += col[2];
+            
+            let sc = sampleCount + 1;
+            let r = buffer[idx] / sc;
+            let g = buffer[idx+1] / sc;
+            let b = buffer[idx+2] / sc;
+            
+            // Tone Mapping & Gamma
+            r = Math.pow(r, 0.45);
+            g = Math.pow(g, 0.45);
+            b = Math.pow(b, 0.45);
+            
+            let pIdx = (y * width + x) * 4;
+            data[pIdx]   = Math.min(255, r*255);
+            data[pIdx+1] = Math.min(255, g*255);
+            data[pIdx+2] = Math.min(255, b*255);
+            data[pIdx+3] = 255;
+        }
+    }
+    
+    sampleCount++;
+    ctx.putImageData(idata, 0, 0);
+    document.getElementById("stats").textContent = `Samples: ${sampleCount} | Res: ${width}x${height}`;
+    requestAnimationFrame(render);
+}
+
+// --- UI Logic ---
+const keys = {};
+window.addEventListener("keydown", e => keys[e.key.toLowerCase()] = true);
+window.addEventListener("keyup", e => keys[e.key.toLowerCase()] = false);
+canvas.addEventListener("click", () => canvas.requestPointerLock());
+document.addEventListener("mousemove", e => {
+    if(document.pointerLockElement === canvas) {
+        camYaw += e.movementX * 0.002;
+        camPitch -= e.movementY * 0.002;
+        reset();
+    }
+});
+
+// Setup Object Selector
+const objSelect = document.getElementById("objSelect");
+const uniqueMats = new Set();
+const matMap = new Map(); 
+
+// Group objects by logic (Tetrahedron faces should be one entry)
+Objects.forEach((obj, i) => {
+    const name = obj.parentName || obj.name;
+    if(!matMap.has(name)) {
+        const opt = document.createElement("option");
+        opt.value = i; // Store index of first part
+        opt.text = name;
+        objSelect.appendChild(opt);
+        matMap.set(name, obj.mat);
+    }
+});
+
+// Controls
+const iRes = document.getElementById("resolution");
+const iBounce = document.getElementById("bounces");
+const iColor = document.getElementById("matColor");
+const iEmis = document.getElementById("matEmission");
+const iRough = document.getElementById("matRoughness");
+const iMetal = document.getElementById("matMetal");
+
+iRes.addEventListener("input", e => { 
+    settings.scale = parseFloat(e.target.value); 
+    document.getElementById("resVal").innerText = settings.scale; 
+    resize(); 
+});
+iBounce.addEventListener("input", e => { 
+    settings.bounces = parseInt(e.target.value); 
+    document.getElementById("depthVal").innerText = settings.bounces; 
+    reset(); 
+});
+document.getElementById("resetBtn").addEventListener("click", reset);
+
+function updateUI() {
+    const idx = parseInt(objSelect.value);
+    const mat = Objects[idx].mat;
+    
+    const toHex = c => Math.floor(c*255).toString(16).padStart(2,'0');
+    iColor.value = `#${toHex(mat.color[0])}${toHex(mat.color[1])}${toHex(mat.color[2])}`;
+    iEmis.value = mat.emission;
+    iRough.value = mat.roughness;
+    iMetal.value = mat.metal;
+    
+    document.getElementById("emisVal").innerText = mat.emission;
+    document.getElementById("roughVal").innerText = mat.roughness;
+    document.getElementById("metalVal").innerText = mat.metal;
+}
+
+function updateMat() {
+    const idx = parseInt(objSelect.value);
+    const mat = Objects[idx].mat;
+    
+    const hex = iColor.value;
+    mat.color = [
+        parseInt(hex.substr(1,2),16)/255,
+        parseInt(hex.substr(3,2),16)/255,
+        parseInt(hex.substr(5,2),16)/255
+    ];
+    mat.emission = parseFloat(iEmis.value);
+    mat.roughness = parseFloat(iRough.value);
+    mat.metal = parseFloat(iMetal.value);
+    
+    updateUI(); // refresh text values
+    reset();
+}
+
+objSelect.addEventListener("change", updateUI);
+[iColor, iEmis, iRough, iMetal].forEach(el => el.addEventListener("input", updateMat));
+
+// Init
+window.addEventListener("resize", resize);
+resize();
+updateUI(); // Load initial state
+requestAnimationFrame(render);
+
+</script>
+</body>
+</html>
