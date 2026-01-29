@@ -1,0 +1,83 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  box-sizing: border-box;
+}
+ @keyframes rainbow {
+      0% {
+        color: red;
+      }
+      20% {
+        color: yellow;
+      }
+      40% {
+        color: green;
+      }
+      60% {
+        color: blue;
+      }
+      80% {
+        color: violet;
+      }
+	   100% {
+        color: red;
+      }
+    }
+body {
+  font-family: Arial, Helvetica, sans-serif;
+}
+    .rainbowslow {
+     animation: rainbow 20s infinite;
+	   animation-duration: infinite;
+ 	   animation-timing-function: linear;
+    }
+	
+    .rainbowfast {
+     animation: rainbow 2s infinite;
+	   animation-duration: infinite;
+ 	   animation-timing-function: linear;
+    }
+  .navbar {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 10px;
+    background-color: #333;
+    width: 100vw;
+    margin: 0;
+    padding: 0;
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 1000;
+    height: 48px;
+    box-sizing: border-box;
+    border-bottom: 2px solid #222;
+  }
+
+  .navbar a {
+    font-size: 16px;
+    color: white;
+    text-align: center;
+    padding: 12px 18px;
+    text-decoration: none;
+    transition: background 0.2s;
+    border-radius: 4px;
+    margin: 0 2px;
+    display: flex;
+    align-items: center;
+    height: 100%;
+  }
+
+  .navbar a:hover {
+    background-color: red;
+    color: #fff;
+  }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  width: 100vw;
+  box-sizing: border-box;
+}
