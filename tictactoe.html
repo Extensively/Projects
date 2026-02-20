@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>The Great Grid 3D</title>
+<title>The Great Grid 3D – Claymore, Skills, Respawns</title>
 <style>
   body { margin: 0; overflow: hidden; background: #000; }
   #lockButton {
@@ -39,6 +39,19 @@
     color: #eee; font-family: sans-serif; font-size: 12px;
     border-radius: 4px; z-index: 20; min-width: 200px;
   }
+  #skillTree {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.85);
+    color: white; font-family: sans-serif;
+    padding: 20px; display: none; z-index: 30;
+  }
+  #skillTree h2 { margin-top: 0; }
+  #skillTree button {
+    margin: 4px; padding: 6px 10px;
+    background: #333; color: #eee;
+    border: 1px solid #666; border-radius: 4px;
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -46,7 +59,7 @@
 <div id="lockButton">Click to Lock Pointer</div>
 <div id="hint">
   WASD: move · Mouse: look · LMB: melee · RMB: ranged (lvl 3+)<br>
-  Space: jump / double jump · Shift: dash · E: interact · F: fast travel · H: heal
+  Space: jump / double jump · Shift: dash · E: interact · F: fast travel · H: heal · K: skills
 </div>
 
 <div id="hud">
@@ -60,6 +73,18 @@
 
 <div id="interaction">Nearby: none</div>
 <div id="log"></div>
+
+<div id="skillTree">
+  <h2>Skill Tree</h2>
+  <p>Skill Points: <span id="spCount"></span></p>
+  <p>
+    <button onclick="upgradeSkill('strength')">Strength (+melee dmg)</button>
+    <button onclick="upgradeSkill('vitality')">Vitality (+max HP)</button>
+    <button onclick="upgradeSkill('agility')">Agility (dash CD)</button>
+    <button onclick="upgradeSkill('arcana')">Arcana (+ranged dmg)</button>
+  </p>
+  <p>Press K or Escape to close.</p>
+</div>
 
 <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 <script>
@@ -94,8 +119,24 @@ const state = {
   gravity: -60,
   jumpStrength: 22,
   doubleJumpStrength: 18,
-  doubleJumpXMesh: null
+  doubleJumpXMesh: null,
+  // respawn
+  respawnTimer: 0,
+  respawnInterval: 12,
+  maxEnemies: 40,
+  // skills
+  skills: {
+    strength: 0,
+    vitality: 0,
+    agility: 0,
+    arcana: 0
+  },
+  skillPoints: 0,
+  meleeBonus: 0,
+  rangedBonus: 0
 };
+
+let skillTreeOpen = false;
 
 const logEl = document.getElementById('log');
 const biomeEl = document.getElementById('biome');
@@ -150,7 +191,7 @@ let pitch = 0;
 
 const lockButton = document.getElementById('lockButton');
 lockButton.addEventListener('click', () => {
-  document.body.requestPointerLock();
+  if (!skillTreeOpen) document.body.requestPointerLock();
 });
 
 document.addEventListener('pointerlockchange', () => {
@@ -194,6 +235,27 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') tryFastTravel();
   if (e.code === 'KeyH') tryHeal();
   if (e.code === 'KeyE') tryInteract();
+
+  if (e.code === 'KeyK') {
+    skillTreeOpen = !skillTreeOpen;
+    if (skillTreeOpen) {
+      document.exitPointerLock();
+      showSkillTree();
+    } else {
+      hideSkillTree();
+      document.body.requestPointerLock();
+    }
+  }
+
+  if (e.code === 'Escape') {
+    if (skillTreeOpen) {
+      skillTreeOpen = false;
+      hideSkillTree();
+    }
+    if (document.pointerLockElement === document.body) {
+      document.exitPointerLock();
+    }
+  }
 });
 
 document.addEventListener('keyup', (e) => {
@@ -477,6 +539,24 @@ function updateEnemies(dt) {
 }
 
 /* --------------------------------------------------
+   ENEMY RESPAWN
+-------------------------------------------------- */
+function respawnEnemies(dt) {
+  state.respawnTimer += dt;
+  if (state.respawnTimer < state.respawnInterval) return;
+  state.respawnTimer = 0;
+
+  const aliveCount = state.enemies.filter(e => e.alive).length;
+  if (aliveCount >= state.maxEnemies) return;
+
+  const gx = Math.floor(Math.random() * 3);
+  const gy = Math.floor(Math.random() * 3);
+  const t = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+  spawnEnemy(gx, gy, t.name, t.color);
+  log('A new ' + t.name + ' emerges in the distance...');
+}
+
+/* --------------------------------------------------
    BIOME DETECTION
 -------------------------------------------------- */
 function updateBiome() {
@@ -562,7 +642,7 @@ function updateInteractionPrompt() {
 }
 
 /* --------------------------------------------------
-   TIC-TAC-CLAYMORE WEAPON (LARGE CROSSGUARD, PURPLE GLOW)
+   TIC-TAC-CLAYMORE WEAPON
 -------------------------------------------------- */
 const weaponGroup = new THREE.Group();
 scene.add(weaponGroup);
@@ -570,7 +650,6 @@ scene.add(weaponGroup);
 let bladeMesh, guardBars = [];
 
 function buildWeapon() {
-    
   // Blade
   const bladeGeo = new THREE.BoxGeometry(0.2, 2.8, 0.1);
   const bladeMat = new THREE.MeshStandardMaterial({
@@ -583,14 +662,14 @@ function buildWeapon() {
   bladeMesh.position.set(0, 1.4, 0);
   weaponGroup.add(bladeMesh);
 
-  // Large tic-tac-toe crossguard
-  const barGeo = new THREE.BoxGeometry(1.8, 0.08, 0.08);
-  const barGeoV = new THREE.BoxGeometry(0.08, 1.8, 0.08);
+  // Large tic-tac-toe crossguard (slightly reduced)
+  const barGeo = new THREE.BoxGeometry(1.4, 0.06, 0.06);
+  const barGeoV = new THREE.BoxGeometry(0.06, 1.4, 0.06);
   const guardMat = new THREE.MeshStandardMaterial({
     color: 0x888888,
     metalness: 0.7,
     roughness: 0.4,
-    emissive: 0x4a2a7a // medium purple
+    emissive: 0x4a2a7a
   });
 
   const offsets = [-0.6, 0, 0.6];
@@ -615,11 +694,12 @@ function buildWeapon() {
   weaponGroup.add(handle);
 }
 buildWeapon();
+
+// shrink whole weapon a bit
 weaponGroup.scale.set(0.7, 0.7, 0.7);
 
-
 function updateWeaponTransform(dt) {
-// Smaller sword, pushed further right and down
+  // smaller, further right and down
   const baseOffset = new THREE.Vector3(0.8, -0.9, -1.4);
   const swingPhase = state.swingTimer > 0 ? (1 - state.swingTimer / 0.25) : 0;
   const swingAngle = Math.sin(swingPhase * Math.PI) * 0.7;
@@ -645,9 +725,14 @@ function updateWeaponTransform(dt) {
 }
 
 /* --------------------------------------------------
-   MELEE ATTACK
+   MELEE & RANGED INPUT + POINTER LOCK CLICK
 -------------------------------------------------- */
 document.addEventListener('mousedown', (e) => {
+  // click world -> lock pointer (if not in GUI)
+  if (!skillTreeOpen && !state.dead && document.pointerLockElement !== document.body) {
+    document.body.requestPointerLock();
+  }
+
   if (e.button === 0) tryMeleeAttack();
   if (e.button === 2) tryRangedAttack();
 });
@@ -681,7 +766,7 @@ function tryMeleeAttack() {
   }
 
   if (hitEnemy) {
-    let dmg = 18;
+    let dmg = 18 + state.meleeBonus;
     if (state.biome === 'X-Canyons' || state.biome === 'O-asis') dmg += 4;
     hitEnemy.hp -= dmg;
     hitEnemy.mesh.material.emissive = new THREE.Color(0x4a2a7a);
@@ -743,7 +828,7 @@ function updateProjectiles(dt) {
     }
 
     if (hitEnemy) {
-      let dmg = 22;
+      let dmg = 22 + state.rangedBonus;
       hitEnemy.hp -= dmg;
       hitEnemy.mesh.material.emissive = new THREE.Color(0x9b6bff);
       setTimeout(() => {
@@ -766,7 +851,7 @@ function updateProjectiles(dt) {
 }
 
 /* --------------------------------------------------
-   ENEMY DEATH / XP / RANGED UNLOCK
+   ENEMY DEATH / XP / RANGED UNLOCK / SKILLS
 -------------------------------------------------- */
 function killEnemy(e) {
   e.alive = false;
@@ -777,18 +862,49 @@ function killEnemy(e) {
   checkLevelUp();
 }
 
+function applySkills() {
+  state.meleeBonus = state.skills.strength * 3;
+  state.maxHp = 100 + state.skills.vitality * 20;
+  if (state.hp > state.maxHp) state.hp = state.maxHp;
+  state.dashCooldown = Math.max(0.2, 0.6 - state.skills.agility * 0.05);
+  state.rangedBonus = state.skills.arcana * 4;
+}
+
 function checkLevelUp() {
   const needed = state.level * 50;
-  if (state.xp >= needed) {
+  while (state.xp >= needed * (state.level / (state.level))) {
+    const threshold = state.level * 50;
+    if (state.xp < threshold) break;
     state.level++;
-    state.maxHp += 10;
-    state.hp = state.maxHp;
-    log('Level up! You are now level ' + state.level + '.');
+    state.skillPoints++;
+    log('Level up! You are now level ' + state.level + '. You gained a skill point (K).');
+    applySkills();
     if (!state.rangedUnlocked && state.level >= 3) {
       state.rangedUnlocked = true;
       log('You unlock the Ranged Gridshot! Right-click to fire.');
     }
   }
+}
+
+/* --------------------------------------------------
+   SKILL TREE UI
+-------------------------------------------------- */
+function showSkillTree() {
+  document.getElementById('skillTree').style.display = 'block';
+  document.getElementById('spCount').textContent = state.skillPoints;
+}
+
+function hideSkillTree() {
+  document.getElementById('skillTree').style.display = 'none';
+}
+
+function upgradeSkill(type) {
+  if (state.skillPoints <= 0) return;
+  state.skills[type]++;
+  state.skillPoints--;
+  applySkills();
+  document.getElementById('spCount').textContent = state.skillPoints;
+  log('Upgraded ' + type + '!');
 }
 
 /* --------------------------------------------------
@@ -876,7 +992,7 @@ function animate() {
   requestAnimationFrame(animate);
 
   const dt = clock.getDelta();
-  if (isLocked && !state.dead) {
+  if (isLocked && !state.dead && !skillTreeOpen) {
     const speed = 90 * dt;
 
     const forward = new THREE.Vector3();
@@ -884,7 +1000,7 @@ function animate() {
     forward.y = 0;
     forward.normalize();
 
-    // Correct left/right: right = up × forward
+    // Correct right vector: forward × up
     const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
 
     if (move.f) camera.position.addScaledVector(forward, speed);
@@ -914,6 +1030,7 @@ function animate() {
   updateHUD();
   updateInteractionPrompt();
   updateEnemies(dt);
+  respawnEnemies(dt);
   updateProjectiles(dt);
   updateWeaponTransform(dt);
 
@@ -930,7 +1047,8 @@ window.addEventListener('resize', () => {
    INIT
 -------------------------------------------------- */
 log('You awaken in the Center Square of the Great Grid.');
-log('Explore the nine biomes, align monuments, fight with your Tic-Tac-Claymore, unlock the Gridshot, dash and double jump.');
+log('Explore the nine biomes, align monuments, fight with your Tic-Tac-Claymore, unlock the Gridshot, dash, double jump, and grow your skills.');
+applySkills();
 updateHUD();
 animate();
 </script>
