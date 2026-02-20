@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>The Great Grid 3D – Claymore, Dash, Double Jump</title>
+<style>
+  body { margin: 0; overflow: hidden; background: #000; }
+  #lockButton {
+    position: fixed; top: 10px; left: 10px;
+    padding: 8px 12px; background: rgba(0,0,0,0.7);
+    color: white; cursor: pointer; font-family: sans-serif;
+    border: 1px solid #666; border-radius: 4px;
+    z-index: 20;
+  }
+  #hint {
+    position: fixed; bottom: 10px; left: 10px;
+    padding: 6px 10px; background: rgba(0,0,0,0.6);
+    color: #ddd; font-family: sans-serif; font-size: 12px;
+    border-radius: 4px; z-index: 20;
+  }
+  #hud {
+    position: fixed; top: 10px; right: 10px;
+    background: rgba(0,0,0,0.7); padding: 8px 12px;
+    color: white; font-family: sans-serif; font-size: 12px;
+    border-radius: 4px; z-index: 20; min-width: 260px;
+  }
+  #hud div { margin-bottom: 2px; }
+  #log {
+    position: fixed; left: 10px; bottom: 40px;
+    width: 360px; max-height: 40vh;
+    background: rgba(0,0,0,0.7); color: #ddd;
+    font-family: monospace; font-size: 11px;
+    padding: 6px 8px; border-radius: 4px;
+    overflow-y: auto; white-space: pre-line; z-index: 20;
+  }
+  #interaction {
+    position: fixed; bottom: 10px; right: 10px;
+    padding: 6px 10px; background: rgba(0,0,0,0.7);
+    color: #eee; font-family: sans-serif; font-size: 12px;
+    border-radius: 4px; z-index: 20; min-width: 200px;
+  }
+</style>
+</head>
+<body>
+
+<div id="lockButton">Click to Lock Pointer</div>
+<div id="hint">
+  WASD: move · Mouse: look · LMB: melee · RMB: ranged (lvl 3+)<br>
+  Space: jump / double jump · Shift: dash · E: interact · F: fast travel · H: heal
+</div>
+
+<div id="hud">
+  <div id="biome">Biome: ???</div>
+  <div id="status">Status: Exploring</div>
+  <div id="hp">HP: 100/100</div>
+  <div id="xp">XP: 0 · Level: 1</div>
+  <div id="weapon">Weapon: Tic-Tac-Claymore (Ranged locked)</div>
+  <div id="fastTravel">Fast Travel: 0 monuments aligned</div>
+</div>
+
+<div id="interaction">Nearby: none</div>
+<div id="log"></div>
+
+<script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+/* --------------------------------------------------
+   CORE STATE
+-------------------------------------------------- */
+const state = {
+  hp: 100,
+  maxHp: 100,
+  xp: 0,
+  level: 1,
+  biome: 'Center Square',
+  dead: false,
+  fastTravelUnlocked: [],
+  monuments: [],
+  healSpots: [],
+  enemies: [],
+  sideActivities: [],
+  lastHitTime: 0,
+  attackCooldown: 0.35,
+  lastEnemyHitTime: 0,
+  enemyAttackCooldown: 1.2,
+  spawnPoint: new THREE.Vector3(0, 10, 0),
+  rangedUnlocked: false,
+  projectiles: [],
+  swingTimer: 0,
+  dashCooldown: 0.6,
+  lastDashTime: -999,
+  isGrounded: true,
+  jumpsUsed: 0,
+  velocityY: 0,
+  gravity: -60,
+  jumpStrength: 22,
+  doubleJumpStrength: 18,
+  doubleJumpXMesh: null
+};
+
+const logEl = document.getElementById('log');
+const biomeEl = document.getElementById('biome');
+const statusEl = document.getElementById('status');
+const hpEl = document.getElementById('hp');
+const xpEl = document.getElementById('xp');
+const fastTravelEl = document.getElementById('fastTravel');
+const weaponEl = document.getElementById('weapon');
+const interactionEl = document.getElementById('interaction');
+
+function log(msg) {
+  logEl.textContent += msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function updateHUD() {
+  biomeEl.textContent = 'Biome: ' + state.biome;
+  statusEl.textContent = 'Status: ' + (state.dead ? 'Downed' : 'Exploring');
+  hpEl.textContent = `HP: ${state.hp}/${state.maxHp}`;
+  xpEl.textContent = `XP: ${state.xp} · Level: ${state.level}`;
+  fastTravelEl.textContent = `Fast Travel: ${state.fastTravelUnlocked.length} monuments aligned`;
+  weaponEl.textContent = 'Weapon: Tic-Tac-Claymore' + (state.rangedUnlocked ? ' + Gridshot' : ' (Ranged locked)');
+}
+
+/* --------------------------------------------------
+   THREE.JS SETUP
+-------------------------------------------------- */
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x202030);
+
+const camera = new THREE.PerspectiveCamera(
+  75, window.innerWidth / window.innerHeight, 0.1, 5000
+);
+camera.position.copy(state.spawnPoint);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+document.body.appendChild(renderer.domElement);
+
+scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+const sun = new THREE.DirectionalLight(0xffffff, 1.0);
+sun.position.set(400, 800, 300);
+scene.add(sun);
+
+/* --------------------------------------------------
+   POINTER LOCK + MOUSE LOOK
+-------------------------------------------------- */
+let isLocked = false;
+let yaw = 0;
+let pitch = 0;
+
+const lockButton = document.getElementById('lockButton');
+lockButton.addEventListener('click', () => {
+  document.body.requestPointerLock();
+});
+
+document.addEventListener('pointerlockchange', () => {
+  if (document.pointerLockElement === document.body) {
+    isLocked = true;
+    lockButton.style.display = 'none';
+  } else {
+    isLocked = false;
+    lockButton.style.display = 'block';
+  }
+});
+
+document.addEventListener('mousemove', (e) => {
+  if (!isLocked || state.dead) return;
+  const sensitivity = 0.002;
+  yaw   -= e.movementX * sensitivity;
+  pitch -= e.movementY * sensitivity;
+
+  const maxPitch = Math.PI / 2 - 0.01;
+  pitch = Math.max(-maxPitch, Math.min(maxPitch, pitch));
+
+  camera.rotation.order = 'YXZ';
+  camera.rotation.y = yaw;
+  camera.rotation.x = pitch;
+});
+
+/* --------------------------------------------------
+   MOVEMENT
+-------------------------------------------------- */
+const move = { f:0, b:0, l:0, r:0 };
+
+document.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyW') move.f = 1;
+  if (e.code === 'KeyS') move.b = 1;
+  if (e.code === 'KeyA') move.l = 1;
+  if (e.code === 'KeyD') move.r = 1;
+
+  if (e.code === 'Space') handleJump();
+  if (e.code === 'ShiftLeft' || e.code === 'ShiftRight') handleDash();
+
+  if (e.code === 'KeyF') tryFastTravel();
+  if (e.code === 'KeyH') tryHeal();
+  if (e.code === 'KeyE') tryInteract();
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.code === 'KeyW') move.f = 0;
+  if (e.code === 'KeyS') move.b = 0;
+  if (e.code === 'KeyA') move.l = 0;
+  if (e.code === 'KeyD') move.r = 0;
+});
+
+/* --------------------------------------------------
+   WORLD: LARGE 3×3 GRID, TREES, HILLS
+-------------------------------------------------- */
+const TILE = 400;
+const GAP = 40;
+
+const biomeNames = [
+  ['X-Canyons','North Ridge','High Plateau'],
+  ['West Wilds','Center Square','East Verge'],
+  ['South Fringe',"Cat\'s Wastes",'O-asis']
+];
+
+const biomeColors = [
+  [0x553344,0x334455,0x556677],
+  [0x335533,0x444444,0x335577],
+  [0x665533,0x554433,0x776633]
+];
+
+function makeTile(color, gx, gy) {
+  const geo = new THREE.PlaneGeometry(TILE, TILE, 8, 8);
+  geo.rotateX(-Math.PI / 2);
+  const posAttr = geo.attributes.position;
+  for (let i = 0; i < posAttr.count; i++) {
+    const x = posAttr.getX(i);
+    const z = posAttr.getZ(i);
+    const noise = (Math.sin(x * 0.02) + Math.cos(z * 0.02)) * 2;
+    posAttr.setY(i, noise);
+  }
+  posAttr.needsUpdate = true;
+
+  const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.9, metalness: 0.1 });
+  const mesh = new THREE.Mesh(geo, mat);
+  const x = (gx - 1) * (TILE + GAP);
+  const z = (gy - 1) * (TILE + GAP);
+  mesh.position.set(x, 0, z);
+  mesh.receiveShadow = true;
+  scene.add(mesh);
+
+  const treeCount = 18;
+  for (let i = 0; i < treeCount; i++) {
+    const tx = x + (Math.random() - 0.5) * TILE * 0.8;
+    const tz = z + (Math.random() - 0.5) * TILE * 0.8;
+    makeTree(tx, tz);
+  }
+
+  const hillCount = 6;
+  for (let i = 0; i < hillCount; i++) {
+    const hx = x + (Math.random() - 0.5) * TILE * 0.7;
+    const hz = z + (Math.random() - 0.5) * TILE * 0.7;
+    makeHill(hx, hz);
+  }
+}
+
+function makeTree(x, z) {
+  const trunkGeo = new THREE.CylinderGeometry(1, 1.5, 12, 6);
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5b3a1a });
+  const trunk = new THREE.Mesh(trunkGeo, trunkMat);
+  trunk.position.set(x, 6, z);
+  scene.add(trunk);
+
+  const crownGeo = new THREE.SphereGeometry(6, 8, 8);
+  const crownMat = new THREE.MeshStandardMaterial({ color: 0x2f6f2f });
+  const crown = new THREE.Mesh(crownGeo, crownMat);
+  crown.position.set(x, 14, z);
+  scene.add(crown);
+}
+
+function makeHill(x, z) {
+  const geo = new THREE.SphereGeometry(10 + Math.random()*10, 12, 12);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x555544 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, 6, z);
+  scene.add(mesh);
+}
+
+for (let gy = 0; gy < 3; gy++) {
+  for (let gx = 0; gx < 3; gx++) {
+    makeTile(biomeColors[gy][gx], gx, gy);
+  }
+}
+
+/* --------------------------------------------------
+   MONUMENTS & FAST TRAVEL
+-------------------------------------------------- */
+function makeMonument(gx, gy, name) {
+  const x = (gx - 1) * (TILE + GAP);
+  const z = (gy - 1) * (TILE + GAP);
+  const baseGeo = new THREE.CylinderGeometry(6, 10, 6, 8);
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x777777 });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.position.set(x, 3, z);
+  scene.add(base);
+
+  const topGeo = new THREE.BoxGeometry(4, 10, 4);
+  const topMat = new THREE.MeshStandardMaterial({ color: 0xffdd55, emissive: 0x222200 });
+  const top = new THREE.Mesh(topGeo, topMat);
+  top.position.set(x, 11, z);
+  scene.add(top);
+
+  const monument = { name, x, z, base, top, aligned: false };
+  state.monuments.push(monument);
+}
+
+makeMonument(1,1,'Center Square Spire');
+makeMonument(0,0,'X-Canyons Obelisk');
+makeMonument(2,2,'O-asis Pillar');
+makeMonument(1,2,"Cat\'s Wastes Totem");
+
+function tryFastTravel() {
+  if (state.fastTravelUnlocked.length === 0) {
+    log('No aligned monuments yet.');
+    return;
+  }
+  const target = state.fastTravelUnlocked[Math.floor(Math.random()*state.fastTravelUnlocked.length)];
+  camera.position.set(target.x, 10, target.z + 40);
+  state.spawnPoint.set(target.x, 10, target.z + 40);
+  log('Fast traveled to ' + target.name + '.');
+}
+
+function alignMonument(m) {
+  if (m.aligned) {
+    log(m.name + ' is already aligned.');
+    return;
+  }
+  m.aligned = true;
+  m.top.material.emissive = new THREE.Color(0x88ff88);
+  state.fastTravelUnlocked.push(m);
+  log('You align ' + m.name + '. Fast travel point unlocked.');
+}
+
+/* --------------------------------------------------
+   HEALING SPOTS
+-------------------------------------------------- */
+function makeHealSpot(gx, gy) {
+  const x = (gx - 1) * (TILE + GAP) + TILE*0.3;
+  const z = (gy - 1) * (TILE + GAP) - TILE*0.3;
+  const geo = new THREE.CylinderGeometry(2, 2, 6, 12);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x44ff88, emissive: 0x004422 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, 3, z);
+  scene.add(mesh);
+  state.healSpots.push({ x, z, mesh });
+}
+
+makeHealSpot(1,1);
+makeHealSpot(2,2);
+makeHealSpot(0,2);
+
+function tryHeal() {
+  let nearest = null;
+  let nearestDist = 9999;
+  const p = camera.position;
+  for (const h of state.healSpots) {
+    const d = Math.hypot(h.x - p.x, h.z - p.z);
+    if (d < 40 && d < nearestDist) {
+      nearest = h;
+      nearestDist = d;
+    }
+  }
+  if (!nearest) {
+    log('No healing shrine nearby.');
+    return;
+  }
+  if (state.hp >= state.maxHp) {
+    log('You are already at full health.');
+    return;
+  }
+  const heal = 30;
+  state.hp = Math.min(state.maxHp, state.hp + heal);
+  log('You rest at the shrine and recover ' + heal + ' HP.');
+}
+
+/* --------------------------------------------------
+   SIDE ACTIVITIES (STUBS)
+-------------------------------------------------- */
+function makeSideActivity(gx, gy, type, label) {
+  const x = (gx - 1) * (TILE + GAP) - TILE*0.3;
+  const z = (gy - 1) * (TILE + GAP) + TILE*0.3;
+  const geo = new THREE.BoxGeometry(8, 4, 8);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x8888ff });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, 2, z);
+  scene.add(mesh);
+  state.sideActivities.push({ x, z, mesh, type, label });
+}
+
+makeSideActivity(0,1,'gridlock','Gridlock Puzzle Terminal');
+makeSideActivity(2,1,'sabotage','Supply Line Sabotage Board');
+makeSideActivity(1,0,'tavern','Tavern Tic-Tac-Toe Table');
+
+function triggerSideActivity(act) {
+  if (act.type === 'gridlock') {
+    log('You jack into a Gridlock Puzzle (stub).');
+  } else if (act.type === 'sabotage') {
+    log('You plan Supply Line Sabotage (stub).');
+  } else if (act.type === 'tavern') {
+    log('You sit for Tavern Tic-Tac-Toe (stub).');
+  }
+}
+
+/* --------------------------------------------------
+   ENEMIES: MANY, MOVING, ATTACKING
+-------------------------------------------------- */
+function spawnEnemy(gx, gy, name, color) {
+  const x = (gx - 1) * (TILE + GAP) + (Math.random()-0.5)*TILE*0.7;
+  const z = (gy - 1) * (TILE + GAP) + (Math.random()-0.5)*TILE*0.7;
+  const geo = new THREE.SphereGeometry(8, 16, 16);
+  const mat = new THREE.MeshStandardMaterial({ color, emissive: 0x000000 });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.set(x, 8, z);
+  scene.add(mesh);
+  const enemy = {
+    name,
+    mesh,
+    hp: 60,
+    maxHp: 60,
+    alive: true
+  };
+  state.enemies.push(enemy);
+}
+
+const enemyTypes = [
+  { name: 'Cross Crusader', color: 0xff3366 },
+  { name: 'Order of the Nought', color: 0x33ddff },
+  { name: "Cat\'s Waster", color: 0xffaa33 },
+  { name: 'Diagonal Drifter', color: 0xcc66ff },
+  { name: 'Corner Creeper', color: 0x66ffcc }
+];
+
+for (let gy = 0; gy < 3; gy++) {
+  for (let gx = 0; gx < 3; gx++) {
+    const count = 4;
+    for (let i = 0; i < count; i++) {
+      const t = enemyTypes[Math.floor(Math.random()*enemyTypes.length)];
+      spawnEnemy(gx, gy, t.name, t.color);
+    }
+  }
+}
+
+function updateEnemies(dt) {
+  const p = camera.position;
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+    const pos = e.mesh.position;
+    const dx = p.x - pos.x;
+    const dz = p.z - pos.z;
+    const dist = Math.hypot(dx, dz);
+
+    if (dist < 300) {
+      const speed = 22 * dt;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      pos.x += nx * speed;
+      pos.z += nz * speed;
+    }
+
+    if (dist < 12 && !state.dead) {
+      const now = performance.now() / 1000;
+      if (now - state.lastEnemyHitTime > state.enemyAttackCooldown) {
+        state.lastEnemyHitTime = now;
+        let dmg = 10 + Math.floor(Math.random()*6);
+        if (state.biome === 'Center Square') dmg = Math.floor(dmg * 0.8);
+        state.hp -= dmg;
+        log(e.name + ' hits you for ' + dmg + ' damage.');
+        if (state.hp <= 0) {
+          state.hp = 0;
+          handleDeath();
+        }
+      }
+    }
+  }
+}
+
+/* --------------------------------------------------
+   BIOME DETECTION
+-------------------------------------------------- */
+function updateBiome() {
+  const pos = camera.position;
+  const gx = Math.round(pos.x / (TILE + GAP)) + 1;
+  const gy = Math.round(pos.z / (TILE + GAP)) + 1;
+  const bx = Math.max(0, Math.min(2, gx));
+  const by = Math.max(0, Math.min(2, gy));
+  state.biome = biomeNames[by][bx];
+}
+
+/* --------------------------------------------------
+   INTERACTION (E)
+-------------------------------------------------- */
+function tryInteract() {
+  const p = camera.position;
+  let nearest = null;
+  let nearestDist = 9999;
+  let type = null;
+
+  for (const m of state.monuments) {
+    const d = Math.hypot(m.x - p.x, m.z - p.z);
+    if (d < 40 && d < nearestDist) {
+      nearest = m;
+      nearestDist = d;
+      type = 'monument';
+    }
+  }
+
+  for (const act of state.sideActivities) {
+    const d = Math.hypot(act.x - p.x, act.z - p.z);
+    if (d < 40 && d < nearestDist) {
+      nearest = act;
+      nearestDist = d;
+      type = 'activity';
+    }
+  }
+
+  if (!nearest) {
+    log('Nothing interesting to interact with here.');
+    return;
+  }
+
+  if (type === 'monument') {
+    alignMonument(nearest);
+  } else if (type === 'activity') {
+    triggerSideActivity(nearest);
+  }
+}
+
+function updateInteractionPrompt() {
+  const p = camera.position;
+  let text = 'Nearby: none';
+
+  for (const m of state.monuments) {
+    const d = Math.hypot(m.x - p.x, m.z - p.z);
+    if (d < 40) {
+      text = 'Nearby: ' + m.name + ' (press E to align)';
+      interactionEl.textContent = text;
+      return;
+    }
+  }
+
+  for (const h of state.healSpots) {
+    const d = Math.hypot(h.x - p.x, h.z - p.z);
+    if (d < 40) {
+      text = 'Nearby: Healing Shrine (press H to heal)';
+      interactionEl.textContent = text;
+      return;
+    }
+  }
+
+  for (const act of state.sideActivities) {
+    const d = Math.hypot(act.x - p.x, act.z - p.z);
+    if (d < 40) {
+      text = 'Nearby: ' + act.label + ' (press E)';
+      interactionEl.textContent = text;
+      return;
+    }
+  }
+
+  interactionEl.textContent = text;
+}
+
+/* --------------------------------------------------
+   TIC-TAC-CLAYMORE WEAPON (LARGE CROSSGUARD, PURPLE GLOW)
+-------------------------------------------------- */
+const weaponGroup = new THREE.Group();
+scene.add(weaponGroup);
+
+let bladeMesh, guardBars = [];
+
+function buildWeapon() {
+    
+  // Blade
+  const bladeGeo = new THREE.BoxGeometry(0.2, 2.8, 0.1);
+  const bladeMat = new THREE.MeshStandardMaterial({
+    color: 0xb0b0b0,
+    metalness: 0.8,
+    roughness: 0.3,
+    emissive: 0x000000
+  });
+  bladeMesh = new THREE.Mesh(bladeGeo, bladeMat);
+  bladeMesh.position.set(0, 1.4, 0);
+  weaponGroup.add(bladeMesh);
+
+  // Large tic-tac-toe crossguard
+  const barGeo = new THREE.BoxGeometry(1.8, 0.08, 0.08);
+  const barGeoV = new THREE.BoxGeometry(0.08, 1.8, 0.08);
+  const guardMat = new THREE.MeshStandardMaterial({
+    color: 0x888888,
+    metalness: 0.7,
+    roughness: 0.4,
+    emissive: 0x4a2a7a // medium purple
+  });
+
+  const offsets = [-0.6, 0, 0.6];
+  for (let i = 0; i < 3; i++) {
+    const h = new THREE.Mesh(barGeo, guardMat);
+    h.position.set(0, 0.4 + offsets[i]*0.4, 0);
+    weaponGroup.add(h);
+    guardBars.push(h);
+  }
+  for (let i = 0; i < 3; i++) {
+    const v = new THREE.Mesh(barGeoV, guardMat);
+    v.position.set(offsets[i]*0.6, 0.4, 0);
+    weaponGroup.add(v);
+    guardBars.push(v);
+  }
+
+  // Handle
+  const handleGeo = new THREE.CylinderGeometry(0.08,0.1,1.4,8);
+  const handleMat = new THREE.MeshStandardMaterial({ color: 0x444444 });
+  const handle = new THREE.Mesh(handleGeo, handleMat);
+  handle.position.set(0,-0.7,0);
+  weaponGroup.add(handle);
+}
+buildWeapon();
+weaponGroup.scale.set(0.7, 0.7, 0.7);
+
+
+function updateWeaponTransform(dt) {
+// Smaller sword, pushed further right and down
+  const baseOffset = new THREE.Vector3(0.8, -0.9, -1.4);
+  const swingPhase = state.swingTimer > 0 ? (1 - state.swingTimer / 0.25) : 0;
+  const swingAngle = Math.sin(swingPhase * Math.PI) * 0.7;
+
+  const offset = baseOffset.clone();
+  offset.y -= swingPhase * 0.1;
+  offset.z += swingPhase * 0.1;
+
+  weaponGroup.position.copy(camera.position);
+  weaponGroup.quaternion.copy(camera.quaternion);
+  weaponGroup.position.add(offset.applyQuaternion(camera.quaternion));
+
+  weaponGroup.rotation.z += -swingAngle;
+
+  // faint purple edge glow during swing
+  if (bladeMesh) {
+    if (state.swingTimer > 0) {
+      bladeMesh.material.emissive.setHex(0x4a2a7a);
+    } else {
+      bladeMesh.material.emissive.setHex(0x000000);
+    }
+  }
+}
+
+/* --------------------------------------------------
+   MELEE ATTACK
+-------------------------------------------------- */
+document.addEventListener('mousedown', (e) => {
+  if (e.button === 0) tryMeleeAttack();
+  if (e.button === 2) tryRangedAttack();
+});
+
+function tryMeleeAttack() {
+  if (state.dead) return;
+  const now = performance.now() / 1000;
+  if (now - state.lastHitTime < state.attackCooldown) return;
+  state.lastHitTime = now;
+  state.swingTimer = 0.25;
+
+  const origin = camera.position.clone();
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+
+  const range = 25;
+  let hitEnemy = null;
+  let hitDist = range + 1;
+
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+    const toEnemy = e.mesh.position.clone().sub(origin);
+    const proj = toEnemy.dot(dir);
+    if (proj < 0 || proj > range) continue;
+    const closestPoint = origin.clone().add(dir.clone().multiplyScalar(proj));
+    const dist = closestPoint.distanceTo(e.mesh.position);
+    if (dist < 10 && proj < hitDist) {
+      hitDist = proj;
+      hitEnemy = e;
+    }
+  }
+
+  if (hitEnemy) {
+    let dmg = 18;
+    if (state.biome === 'X-Canyons' || state.biome === 'O-asis') dmg += 4;
+    hitEnemy.hp -= dmg;
+    hitEnemy.mesh.material.emissive = new THREE.Color(0x4a2a7a);
+    setTimeout(() => {
+      if (hitEnemy.alive) hitEnemy.mesh.material.emissive = new THREE.Color(0x000000);
+    }, 150);
+    log('You cleave the ' + hitEnemy.name + ' for ' + dmg + ' damage.');
+    if (hitEnemy.hp <= 0) {
+      killEnemy(hitEnemy);
+    }
+  } else {
+    log('Your claymore cuts only air.');
+  }
+}
+
+/* --------------------------------------------------
+   RANGED WEAPON (UNLOCKABLE GRIDSHOT)
+-------------------------------------------------- */
+function tryRangedAttack() {
+  if (!state.rangedUnlocked || state.dead) return;
+  const now = performance.now() / 1000;
+  if (now - state.lastHitTime < 0.5) return;
+  state.lastHitTime = now;
+
+  const origin = camera.position.clone();
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+
+  const geo = new THREE.BoxGeometry(1,1,1);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9b6bff, emissive: 0x4a2a7a });
+  const mesh = new THREE.Mesh(geo, mat);
+  mesh.position.copy(origin).add(dir.clone().multiplyScalar(4));
+  scene.add(mesh);
+
+  state.projectiles.push({
+    mesh,
+    dir: dir.clone(),
+    speed: 180,
+    life: 2.0
+  });
+
+  log('You fire a Gridshot.');
+}
+
+function updateProjectiles(dt) {
+  for (let i = state.projectiles.length - 1; i >= 0; i--) {
+    const p = state.projectiles[i];
+    p.mesh.position.addScaledVector(p.dir, p.speed * dt);
+    p.life -= dt;
+
+    let hitEnemy = null;
+    for (const e of state.enemies) {
+      if (!e.alive) continue;
+      const dist = e.mesh.position.distanceTo(p.mesh.position);
+      if (dist < 10) {
+        hitEnemy = e;
+        break;
+      }
+    }
+
+    if (hitEnemy) {
+      let dmg = 22;
+      hitEnemy.hp -= dmg;
+      hitEnemy.mesh.material.emissive = new THREE.Color(0x9b6bff);
+      setTimeout(() => {
+        if (hitEnemy.alive) hitEnemy.mesh.material.emissive = new THREE.Color(0x000000);
+      }, 150);
+      log('Gridshot hits ' + hitEnemy.name + ' for ' + dmg + ' damage.');
+      if (hitEnemy.hp <= 0) {
+        killEnemy(hitEnemy);
+      }
+      scene.remove(p.mesh);
+      state.projectiles.splice(i,1);
+      continue;
+    }
+
+    if (p.life <= 0) {
+      scene.remove(p.mesh);
+      state.projectiles.splice(i,1);
+    }
+  }
+}
+
+/* --------------------------------------------------
+   ENEMY DEATH / XP / RANGED UNLOCK
+-------------------------------------------------- */
+function killEnemy(e) {
+  e.alive = false;
+  scene.remove(e.mesh);
+  const xpGain = 25;
+  state.xp += xpGain;
+  log(e.name + ' falls. +' + xpGain + ' XP.');
+  checkLevelUp();
+}
+
+function checkLevelUp() {
+  const needed = state.level * 50;
+  if (state.xp >= needed) {
+    state.level++;
+    state.maxHp += 10;
+    state.hp = state.maxHp;
+    log('Level up! You are now level ' + state.level + '.');
+    if (!state.rangedUnlocked && state.level >= 3) {
+      state.rangedUnlocked = true;
+      log('You unlock the Ranged Gridshot! Right-click to fire.');
+    }
+  }
+}
+
+/* --------------------------------------------------
+   JUMP, DOUBLE JUMP, DASH
+-------------------------------------------------- */
+function handleJump() {
+  if (state.dead) return;
+  if (state.jumpsUsed === 0 && state.isGrounded) {
+    state.velocityY = state.jumpStrength;
+    state.jumpsUsed = 1;
+    state.isGrounded = false;
+  } else if (state.jumpsUsed === 1) {
+    state.velocityY = state.doubleJumpStrength;
+    state.jumpsUsed = 2;
+    spawnDoubleJumpX();
+  }
+}
+
+function spawnDoubleJumpX() {
+  if (state.doubleJumpXMesh) {
+    scene.remove(state.doubleJumpXMesh);
+    state.doubleJumpXMesh = null;
+  }
+  const geo = new THREE.BoxGeometry(8,0.5,1);
+  const mat = new THREE.MeshStandardMaterial({ color: 0x9b6bff, emissive: 0x4a2a7a });
+  const bar1 = new THREE.Mesh(geo, mat);
+  const bar2 = new THREE.Mesh(geo, mat);
+  bar1.rotation.y = Math.PI/4;
+  bar2.rotation.y = -Math.PI/4;
+  const group = new THREE.Group();
+  group.add(bar1, bar2);
+  group.position.set(camera.position.x, 0.3, camera.position.z);
+  scene.add(group);
+  state.doubleJumpXMesh = group;
+  setTimeout(() => {
+    if (state.doubleJumpXMesh) {
+      scene.remove(state.doubleJumpXMesh);
+      state.doubleJumpXMesh = null;
+    }
+  }, 300);
+}
+
+function handleDash() {
+  if (state.dead) return;
+  const now = performance.now() / 1000;
+  if (now - state.lastDashTime < state.dashCooldown) return;
+  state.lastDashTime = now;
+
+  const dir = new THREE.Vector3();
+  camera.getWorldDirection(dir);
+  dir.y = 0;
+  if (dir.lengthSq() === 0) return;
+  dir.normalize();
+
+  const dashDistance = 40;
+  camera.position.addScaledVector(dir, dashDistance);
+}
+
+/* --------------------------------------------------
+   DEATH & RESPAWN
+-------------------------------------------------- */
+function handleDeath() {
+  if (state.dead) return;
+  state.dead = true;
+  log('You collapse on the grid. Respawning at last monument or Center Square...');
+  setTimeout(() => {
+    const target = state.fastTravelUnlocked[0] || { x: 0, z: 0 };
+    camera.position.set(target.x, 10, target.z + 40);
+    state.spawnPoint.set(target.x, 10, target.z + 40);
+    state.hp = state.maxHp;
+    state.dead = false;
+    state.velocityY = 0;
+    state.jumpsUsed = 0;
+    state.isGrounded = true;
+    log('You stand again, renewed.');
+  }, 2000);
+}
+
+/* --------------------------------------------------
+   MAIN LOOP
+-------------------------------------------------- */
+const clock = new THREE.Clock();
+
+function animate() {
+  requestAnimationFrame(animate);
+
+  const dt = clock.getDelta();
+  if (isLocked && !state.dead) {
+    const speed = 90 * dt;
+
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+
+    // Correct left/right: right = up × forward
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0,1,0));
+
+    if (move.f) camera.position.addScaledVector(forward, speed);
+    if (move.b) camera.position.addScaledVector(forward, -speed);
+    if (move.l) camera.position.addScaledVector(right, -speed);
+    if (move.r) camera.position.addScaledVector(right, speed);
+  }
+
+  // Gravity + jump
+  state.velocityY += state.gravity * dt;
+  camera.position.y += state.velocityY * dt;
+  if (camera.position.y <= 10) {
+    camera.position.y = 10;
+    state.velocityY = 0;
+    state.isGrounded = true;
+    state.jumpsUsed = 0;
+  } else {
+    state.isGrounded = false;
+  }
+
+  if (state.swingTimer > 0) {
+    state.swingTimer -= dt;
+    if (state.swingTimer < 0) state.swingTimer = 0;
+  }
+
+  updateBiome();
+  updateHUD();
+  updateInteractionPrompt();
+  updateEnemies(dt);
+  updateProjectiles(dt);
+  updateWeaponTransform(dt);
+
+  renderer.render(scene, camera);
+}
+
+window.addEventListener('resize', () => {
+  camera.aspect = window.innerWidth / window.innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(window.innerWidth, window.innerHeight);
+});
+
+/* --------------------------------------------------
+   INIT
+-------------------------------------------------- */
+log('You awaken in the Center Square of the Great Grid.');
+log('Explore the nine biomes, align monuments, fight with your Tic-Tac-Claymore, unlock the Gridshot, dash and double jump.');
+updateHUD();
+animate();
+</script>
+
+</body>
+</html>
