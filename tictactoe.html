@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>The Great Grid 3D</title>
+<title>TIC TAC TOE 3D</title>
 <style>
   body { margin: 0; overflow: hidden; background: #000; }
   #lockButton {
@@ -123,7 +123,7 @@ const state = {
   // respawn
   respawnTimer: 0,
   respawnInterval: 3,
-  maxEnemies: 80,
+  maxEnemies: 40,
   // skills
   skills: {
     strength: 0,
@@ -235,6 +235,8 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') tryFastTravel();
   if (e.code === 'KeyH') tryHeal();
   if (e.code === 'KeyE') tryInteract();
+
+  if (e.code === 'KeyQ') tryRangedAttack();
 
   if (e.code === 'KeyK') {
     skillTreeOpen = !skillTreeOpen;
